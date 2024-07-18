@@ -1,0 +1,32 @@
+version: '3'
+services:
+  etl-pipeline:
+    build: .
+    environment:
+      - INPUT_FILE=/data/input.csv
+      - DB_CONNECTION_STRING=postgresql://user:password@db:5432/etldb
+      - TABLE_NAME=output_table
+    volumes:
+      - ./data:/data
+    depends_on:
+      - db
+    networks:
+      - my-network
+
+  db:
+    image: postgres:13
+    environment:
+      - POSTGRES_USER=user
+      - POSTGRES_PASSWORD=password
+      - POSTGRES_DB=etldb
+    volumes:
+      - pgdata:/var/lib/postgresql/data
+    networks:
+      - my-network
+
+volumes:
+  pgdata:
+
+networks:
+  my-network:
+    external: true
