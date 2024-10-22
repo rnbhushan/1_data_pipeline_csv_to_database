@@ -1,2 +1,21 @@
 pandas
 sqlalchemy
+
+@echo off
+setlocal
+set "folder=C:\path\to\your\folder"
+
+if not exist "%folder%" (
+    echo Folder does not exist.
+    goto :EOF
+)
+
+pushd "%folder%" || (echo Failed to access folder & goto :EOF)
+
+for /f "delims=" %%f in ('dir /b /a-d /o-d /t:w 2^>nul') do (
+    echo Latest modified file: %%f
+    goto :EOF
+)
+
+echo No files found in the folder.
+popd
