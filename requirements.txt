@@ -19,3 +19,34 @@ for /f "delims=" %%f in ('dir /b /a-d /o-d /t:w 2^>nul') do (
 
 echo No files found in the folder.
 popd
+
+
+
+@echo off
+setlocal
+set "parentFolder=C:\path\to\your\folder"
+
+if not exist "%parentFolder%" (
+    echo Parent folder does not exist.
+    cmd /k
+    goto :EOF
+)
+
+pushd "%parentFolder%" || (echo Failed to access parent folder & cmd /k & goto :EOF)
+
+for /f "delims=" %%d in ('dir /b /ad /o-d /t:w 2^>nul') do (
+    set "latestFolder=%%d"
+    goto :found
+)
+
+:found
+if defined latestFolder (
+    echo Latest modified subfolder: %latestFolder%
+    REM Call the PowerShell script and pass the latestFolder as an argument
+    PowerShell -ExecutionPolicy Bypass -File "C:\path\to\your\script.ps1" -Folder "%latestFolder%"
+) else (
+    echo No subfolders found in the parent folder.
+)
+
+popd
+cmd /k
