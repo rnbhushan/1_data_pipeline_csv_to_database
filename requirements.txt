@@ -50,3 +50,39 @@ if defined latestFolder (
 
 popd
 cmd /k
+
+
+
+# Import the Selenium module
+Import-Module Selenium
+
+# Define the path to the Chrome WebDriver
+$driverPath = "C:\Selenium\chromedriver.exe"
+
+# Define the path to the HTML file you want to open
+$htmlFilePath = "C:\path\to\your\file.html"
+
+# Start a new Chrome browser instance
+$chromeOptions = New-Object OpenQA.Selenium.Chrome.ChromeOptions
+$chromeOptions.AddArgument('--headless') # Run Chrome in headless mode to avoid opening a visible window
+$driver = Start-SeChrome -DriverPath $driverPath -Options $chromeOptions
+
+# Convert the HTML file path to a URL format
+$htmlFileUrl = "file:///" + $htmlFilePath.Replace("\", "/")
+
+# Open the HTML file in the browser
+$driver.Navigate().GoToUrl($htmlFileUrl)
+
+# Wait for a few seconds to ensure the page is fully loaded
+Start-Sleep -Seconds 2
+
+# Take a screenshot and save it to a file
+$screenshot = $driver.GetScreenshot()
+$screenshot.SaveAsFile("C:\path\to\save\screenshot.png", [OpenQA.Selenium.ScreenshotImageFormat]::Png)
+
+# Close the browser
+$driver.Quit()
+
+Write-Host "Screenshot saved successfully."
+
+
