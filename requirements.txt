@@ -95,4 +95,54 @@ start /wait "" "C:\Program Files\Google\Chrome\Application\chrome.exe" --headles
 
 echo Screenshot saved to %screenshotFile%
 pause
+_______________
+
+Add-Type -AssemblyName System.Windows.Forms
+Add-Type -AssemblyName System.Drawing
+
+# Path to the screenshot image
+$screenshotPath = "C:\path\to\save\screenshot.png"
+
+# Load the image from file
+$image = [System.Drawing.Image]::FromFile($screenshotPath)
+
+# Create a bitmap object for the image
+$bitmap = New-Object System.Drawing.Bitmap($image)
+
+# Set the image to the clipboard
+[System.Windows.Forms.Clipboard]::SetImage($bitmap)
+
+Write-Host "Screenshot copied to clipboard."
+_______
+
+# Create an Outlook COM object
+$Outlook = New-Object -ComObject Outlook.Application
+$Mail = $Outlook.CreateItem(0)
+
+# Set email properties (you can customize these)
+$Mail.Subject = "Screenshot"
+$Mail.To = "recipient@example.com"
+$Mail.BodyFormat = 2  # HTML format
+
+# Paste the clipboard content (image) into the email body
+$Mail.Display()  # Open the email for editing
+$Signature = $Mail.GetInspector.WordEditor
+$Signature.Application.Selection.Paste()
+
+Write-Host "Screenshot pasted in Outlook email body."
+______
+@echo off
+set "htmlFile=C:\path\to\your\file.html"
+set "screenshotFile=C:\path\to\save\screenshot.png"
+
+REM Step 1: Take a screenshot using Chrome headless mode
+start /wait "" "C:\Program Files\Google\Chrome\Application\chrome.exe" --headless --screenshot="%screenshotFile%" --window-size=1280x1024 "%htmlFile%"
+
+REM Step 2: Copy the screenshot to clipboard using PowerShell
+powershell -ExecutionPolicy Bypass -File "C:\path\to\your\copyToClipboard.ps1"
+
+REM Step 3: Open Outlook and paste the screenshot into the body
+powershell -ExecutionPolicy Bypass -File "C:\path\to\your\sendEmail.ps1"
+
+pause
 
