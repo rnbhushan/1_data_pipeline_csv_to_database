@@ -85,4 +85,14 @@ $driver.Quit()
 
 Write-Host "Screenshot saved successfully."
 
+óooooooopo
+@echo off
+set "htmlFile=C:\path\to\your\file.html"
+set "screenshotFile=C:\path\to\save\screenshot.png"
+
+REM Using Chrome in headless mode to capture the screenshot
+start /wait "" "C:\Program Files\Google\Chrome\Application\chrome.exe" --headless --screenshot="%screenshotFile%" --window-size=1280x1024 "%htmlFile%"
+
+echo Screenshot saved to %screenshotFile%
+pause
 
