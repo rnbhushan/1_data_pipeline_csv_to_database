@@ -146,3 +146,58 @@ powershell -ExecutionPolicy Bypass -File "C:\path\to\your\sendEmail.ps1"
 
 pause
 
+
+
+
+
+
+
+@echo off
+setlocal
+
+REM Function to find the latest modified subfolder
+call :FindLatestModifiedSubfolder "C:\path\to\your\folder"
+set "latestFolder=%ERRORLEVEL%"
+
+REM Check if the function found a subfolder
+if defined latestFolder (
+    echo Latest modified subfolder: %latestFolder%
+    REM Call the PowerShell script and pass the latestFolder as an argument
+    PowerShell -ExecutionPolicy Bypass -File "C:\path\to\your\script.ps1" -Folder "%latestFolder%"
+) else (
+    echo No subfolders found in the parent folder.
+)
+
+exit /b
+
+:FindLatestModifiedSubfolder
+    setlocal
+    set "parentFolder=%~1"
+    
+    if not exist "%parentFolder%" (
+        echo Parent folder does not exist.
+        endlocal
+        exit /b 0
+    )
+
+    pushd "%parentFolder%" || (echo Failed to access parent folder & endlocal & exit /b 0)
+
+    for /f "delims=" %%d in ('dir /b /ad /o-d /t:w 2^>nul') do (
+        set "latestFolder=%%d"
+        goto :found
+    )
+
+:found
+    if defined latestFolder (
+        echo %latestFolder% > latestFolder.txt
+        endlocal & set latestFolder=%latestFolder% & exit /b 1
+    ) else (
+        echo No subfolders found.
+        endlocal
+        exit /b 0
+    )
+
+popd
+
+
+
