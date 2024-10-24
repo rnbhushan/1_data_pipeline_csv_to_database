@@ -201,3 +201,27 @@ popd
 
 
 
+
+
+_---------
+
+# Define the search string
+$searchString = "targetString"
+
+# Read the entire file content as a single string
+$fileContent = Get-Content -Path $filePath -Raw
+
+# Use a regex pattern to search for the string and capture the next 20 characters
+$pattern = [regex]::Escape($searchString) + ".{1,20}"
+
+# Find all matches and iterate over them
+[regex]::Matches($fileContent, $pattern) | ForEach-Object {
+    $match = $_.Value
+    $next20Chars = $match.Substring($searchString.Length)
+
+    Write-Host "After '$searchString', the next 20 characters are: $next20Chars"
+}
+
+
+
+
