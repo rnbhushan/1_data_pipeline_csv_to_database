@@ -1,4 +1,4 @@
-pandas
+hipandas
 sqlalchemy
 
 @echo off
@@ -429,5 +429,38 @@ Screenshot Utility: Captures a screenshot during every step of the test.
 PDF Utility: Appends each step, including screenshots, to a PDF report.
 Listeners (Optional): Automate the capturing process during failures or successes.
 By following this approach, you'll be able to generate a comprehensive PDF report that documents the state of the AUT with screenshots taken in real-time as your test automation script runs through various pages and actions. This can be very helpful for debugging, reporting, and understanding the flow of your test cases.
+
+
+
+
+
+
+public class ScreenshotUtil {
+
+    public static String captureScreenshot() {
+        String screenshotPath = null;
+        try {
+            // Capture the whole screen
+            Robot robot = new Robot();
+            String timestamp = new SimpleDateFormat("yyyyMMddHHmmss").format(new Date());
+            screenshotPath = "screenshots/screenshot_" + timestamp + ".png";
+
+            // Get the screen dimensions
+            Rectangle screenRect = new Rectangle(Toolkit.getDefaultToolkit().getScreenSize());
+
+            // Take a screenshot
+            BufferedImage screenFullImage = robot.createScreenCapture(screenRect);
+
+            // Save the screenshot as a PNG file
+            ImageIO.write(screenFullImage, "png", new File(screenshotPath));
+            
+        } catch (AWTException | IOException e) {
+            e.printStackTrace();
+        }
+
+        return screenshotPath; // Return the path for later use in PDF generation
+    }
+}
+
 
 
