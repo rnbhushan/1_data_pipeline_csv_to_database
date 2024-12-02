@@ -458,6 +458,81 @@ public class ScreenshotUtil {
             e.printStackTrace();
         }
 
+
+=============================================
+
+import java.util.ArrayList;
+import java.util.List;
+
+class EditableField {
+    private int startRow;
+    private int startCol;
+    private int endCol;
+    private String attachedText;
+
+    public EditableField(int startRow, int startCol, int endCol, String attachedText) {
+        this.startRow = startRow;
+        this.startCol = startCol;
+        this.endCol = endCol;
+        this.attachedText = attachedText;
+    }
+
+    @Override
+    public String toString() {
+        return "EditableField{" +
+                "startRow=" + startRow +
+                ", startCol=" + startCol +
+                ", endCol=" + endCol +
+                ", attachedText='" + attachedText + '\'' +
+                '}';
+    }
+}
+
+public class MainframeScreenAutomation {
+
+    // Simulated API call to get mainframe screen content
+    private static String getScreenText(int row, int colStart, int colEnd) {
+        // Replace with actual API call to get screen text
+        return "Field Text"; // Simulated field text
+    }
+
+    public static List<EditableField> getEditableFields() {
+        List<EditableField> editableFields = new ArrayList<>();
+        int currentRow = 1; // Starting row position
+        int currentCol = 1; // Starting column position
+
+        // Simulated logic to find editable fields
+        while (currentRow <= 24) { // Assuming 24 rows on the screen
+            // Simulated logic for finding an editable field
+            boolean isEditable = true; // Replace with actual logic to detect editable field
+            int fieldStartCol = currentCol;
+            int fieldEndCol = currentCol + 10; // Simulated field length
+
+            if (isEditable) {
+                String attachedText = getScreenText(currentRow, fieldStartCol, fieldEndCol);
+                EditableField field = new EditableField(currentRow, fieldStartCol, fieldEndCol, attachedText);
+                editableFields.add(field);
+            }
+
+            // Simulate moving to next editable field
+            currentCol += 12;
+            if (currentCol > 80) { // Assuming 80 columns per row
+                currentCol = 1;
+                currentRow++;
+            }
+        }
+        return editableFields;
+    }
+
+    public static void main(String[] args) {
+        List<EditableField> editableFields = getEditableFields();
+        for (EditableField field : editableFields) {
+            System.out.println(field);
+        }
+    }
+}
+
+
         return screenshotPath; // Return the path for later use in PDF generation
     }
 }
