@@ -536,6 +536,43 @@ public class MainframeScreenAutomation {
         return screenshotPath; // Return the path for later use in PDF generation
     }
 }
+llllllllllllllll
 
 
 
+// Define fonts with different styles
+Font normalFont = new Font(Font.FontFamily.HELVETICA, 12, Font.NORMAL);
+Font boldFont = new Font(Font.FontFamily.HELVETICA, 12, Font.BOLD);
+Font italicFont = new Font(Font.FontFamily.HELVETICA, 12, Font.ITALIC);
+
+// Add paragraphs with different styles
+document.add(new Paragraph("This is normal text.", normalFont));
+document.add(new Paragraph("This is bold text.", boldFont));
+document.add(new Paragraph("This is italic text.", italicFont));
+
+⁰0000000000000
+
+import java.awt.AWTException;
+import java.awt.Rectangle;
+import java.awt.Robot;
+import java.awt.Toolkit;
+import java.awt.image.BufferedImage;
+
+public class ScreenshotUtil {
+
+    public static BufferedImage captureScreenshot() {
+        try {
+            // Create a Robot instance
+            Robot robot = new Robot();
+
+            // Get the screen dimensions
+            Rectangle screenRect = new Rectangle(Toolkit.getDefaultToolkit().getScreenSize());
+
+            // Capture the screenshot as a BufferedImage
+            return robot.createScreenCapture(screenRect);
+        } catch (AWTException e) {
+            e.printStackTrace();
+        }
+        return null;
+    }
+}
