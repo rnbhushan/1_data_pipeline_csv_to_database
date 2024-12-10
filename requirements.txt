@@ -576,3 +576,66 @@ public class ScreenshotUtil {
         return null;
     }
 }
+
+
+
+
+
+
+
+import com.itextpdf.text.Document;
+import com.itextpdf.text.DocumentException;
+import com.itextpdf.text.Image;
+import com.itextpdf.text.Paragraph;
+import com.itextpdf.text.pdf.PdfWriter;
+
+import javax.imageio.ImageIO;
+import java.awt.image.BufferedImage;
+import java.io.ByteArrayOutputStream;
+import java.io.FileOutputStream;
+import java.io.IOException;
+
+public class PDFReportUtil {
+
+    public static void main(String[] args) {
+        // File path for the generated PDF
+        String pdfFilePath = "testReport.pdf";
+
+        // Create the PDF document
+        Document document = new Document();
+        try {
+            PdfWriter.getInstance(document, new FileOutputStream(pdfFilePath));
+            document.open();
+
+            // Add a title
+            document.add(new Paragraph("Test Automation Report"));
+
+            // Capture the screenshot
+            BufferedImage screenshot = ScreenshotUtil.captureScreenshot();
+
+            if (screenshot != null) {
+                // Convert BufferedImage to byte array
+                ByteArrayOutputStream baos = new ByteArrayOutputStream();
+                ImageIO.write(screenshot, "png", baos);
+                baos.flush();
+                byte[] imageBytes = baos.toByteArray();
+                baos.close();
+
+                // Add the image to the PDF
+                Image image = Image.getInstance(imageBytes);
+                image.scaleToFit(500, 300); // Scale the image
+                document.add(image);
+            }
+
+            // Add more content
+            document.add(new Paragraph("Test Step: Verify Home Page"));
+            document.add(new Paragraph("Status: Pass"));
+
+        } catch (DocumentException | IOException e) {
+            e.printStackTrace();
+        } finally {
+            document.close();
+        }
+    }
+}
+
