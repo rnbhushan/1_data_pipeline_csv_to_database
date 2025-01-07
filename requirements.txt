@@ -1,231 +1,94 @@
 import pandas as pd
-import tkinter as tk
-from tkinter import ttk, messagebox
-import re
+from sklearn.model_selection import train_test_split
+from sklearn.feature_extraction.text import TfidfVectorizer
+from sklearn.ensemble import RandomForestClassifier
+from sklearn.metrics import accuracy_score
+from transformers import pipeline, AutoModelForCausalLM, AutoTokenizer
+import pickle
+import torch
 
-class UserAccessManager:
-    def __init__(self, historical_data_path):
-        """
-        Initialize User Access Manager with robust data handling
-        
-        Args:
-            historical_data_path (str): Path to historical access data CSV
-        """
-        # Read CSV with enhanced error handling
-        try:
-            # Use dtype to ensure all columns are read as strings
-            self.historical_data = pd.read_csv(
-                historical_data_path, 
-                dtype=str,  # Read all columns as strings
-                keep_default_na=False  # Prevent converting empty strings to NaN
-            )
-            
-            # Clean and preprocess the DataFrame
-            self._preprocess_data()
-        
-        except FileNotFoundError:
-            messagebox.showerror("Error", f"File not found: {historical_data_path}")
-            self.historical_data = pd.DataFrame()
-        except Exception as e:
-            messagebox.showerror("Error", f"Error loading data: {str(e)}")
-            self.historical_data = pd.DataFrame()
-    
-    def _preprocess_data(self):
-        """
-        Preprocess and clean the historical data
-        """
-        # Ensure 'Website' column exists
-        if 'Website' not in self.historical_data.columns:
-            raise ValueError("No 'Website' column found in the CSV")
-        
-        # Clean website column
-        self.historical_data['Website'] = self.historical_data['Website'].apply(self._clean_website)
-        
-        # Fill NaN or empty values with a default
-        columns_to_fill = ['Website', 'RequestStatus', 'UserID', 'Name', 'Email', 'Department', 'ReportingManager']
-        for col in columns_to_fill:
-            if col in self.historical_data.columns:
-                self.historical_data[col] = self.historical_data[col].fillna('Unknown')
-    
-    def _clean_website(self, website):
-        """
-        Clean and normalize website string
-        
-        Args:
-            website (str): Raw website string
-        
-        Returns:
-            str: Cleaned website string
-        """
-        if not isinstance(website, str):
-            return 'Unknown'
-        
-        # Convert to lowercase
-        website = website.lower().strip()
-        
-        # Remove special characters and normalize
-        website = re.sub(r'[^a-z0-9\.\-]', '', website)
-        
-        # Handle common variations
-        website = website.replace('www.', '')
-        
-        return website
-    
-    def check_website_access(self, website):
-        """
-        Check website access with robust filtering
-        
-        Args:
-            website (str): Website to check access for
-        
-        Returns:
-            tuple: (approval_status, user_details_dataframe)
-        """
-        # Clean input website
-        clean_website = self._clean_website(website)
-        
-        if not clean_website or clean_website == 'unknown':
-            return "Cannot approve: Invalid website input", pd.DataFrame()
-        
-        # Flexible website matching using regex
-        website_data = self.historical_data[
-            self.historical_data['Website'].str.contains(
-                clean_website, 
-                case=False, 
-                na=False  # Treat NaN as False
-            )
-        ]
-        
-        # Check if website has any access records
-        if website_data.empty:
-            return "Cannot approve: No access records found", pd.DataFrame()
-        
-        # Check approved status
-        approved_data = website_data[
-            website_data['RequestStatus'].str.strip().str.lower() == 'approved'
-        ]
-        
-        if approved_data.empty:
-            return "Cannot approve: No approved access found", website_data
-        
-        # Prepare approval status
-        approval_status = f"We can approve: {len(approved_data)} user(s) have access to {clean_website}"
-        
-        return approval_status, approved_data
-    
-    def create_gui(self):
-        """Create Tkinter GUI for access request with enhanced error handling"""
-        if self.historical_data.empty:
-            messagebox.showerror("Error", "No data loaded. Cannot create GUI.")
-            return
-        
-        root = tk.Tk()
-        root.title("Robust Website Access Checker")
-        root.geometry("800x600")
-        
-        # Style
-        style = ttk.Style()
-        style.configure("TLabel", font=("Arial", 10))
-        style.configure("TButton", font=("Arial", 10))
-        
-        # Website Input Frame
-        input_frame = ttk.Frame(root)
-        input_frame.pack(padx=10, pady=10, fill="x")
-        
-        # Website Input
-        ttk.Label(input_frame, text="Enter Website:").pack(side=tk.LEFT, padx=5)
-        website_entry = ttk.Entry(input_frame, width=40)
-        website_entry.pack(side=tk.LEFT, padx=5)
-        
-        # Approval Status Label
-        approval_status_label = ttk.Label(root, text="", font=("Arial", 12, "bold"))
-        approval_status_label.pack(pady=10)
-        
-        # Results Frame
-        results_frame = ttk.LabelFrame(root, text="User Access Details")
-        results_frame.pack(padx=10, pady=10, fill="both", expand=True)
-        
-        # Columns to display (with safeguard for missing columns)
-        default_columns = ['UserID', 'Name', 'Email', 'Department', 'ReportingManager', 'RequestStatus']
-        columns = [col for col in default_columns if col in self.historical_data.columns]
-        
-        # Treeview to display results
-        results_tree = ttk.Treeview(results_frame, columns=columns, show='headings')
-        
-        # Configure column headings
-        column_names = {
-            'UserID': 'User ID',
-            'Name': 'Name',
-            'Email': 'Email',
-            'Department': 'Department',
-            'ReportingManager': 'Reporting Manager',
-            'RequestStatus': 'Request Status'
-        }
-        
-        for col in columns:
-            results_tree.heading(col, text=column_names.get(col, col))
-            results_tree.column(col, width=100)
-        
-        results_tree.pack(fill='both', expand=True)
-        
-        # Scrollbar for results
-        scrollbar_y = ttk.Scrollbar(results_frame, orient=tk.VERTICAL, command=results_tree.yview)
-        results_tree.configure(yscroll=scrollbar_y.set)
-        scrollbar_y.pack(side=tk.RIGHT, fill=tk.Y)
-        
-        scrollbar_x = ttk.Scrollbar(results_frame, orient=tk.HORIZONTAL, command=results_tree.xview)
-        results_tree.configure(xscroll=scrollbar_x.set)
-        scrollbar_x.pack(side=tk.BOTTOM, fill=tk.X)
-        
-        def submit_request():
-            """Handle access request submission with enhanced error handling"""
-            # Clear previous results
-            approval_status_label.config(text="")
-            for i in results_tree.get_children():
-                results_tree.delete(i)
-            
-            # Get input website
-            input_website = website_entry.get().strip()
-            
-            if not input_website:
-                messagebox.showwarning("Input Error", "Please enter a website")
-                return
-            
-            # Check website access
-            approval_status, user_data = self.check_website_access(input_website)
-            
-            # Update approval status
-            approval_status_label.config(text=approval_status)
-            
-            # Populate results
-            if not user_data.empty:
-                for _, row in user_data.iterrows():
-                    # Only use available columns
-                    values = [row.get(col, 'Unknown') for col in columns]
-                    results_tree.insert('', 'end', values=values)
-        
-        def clear_fields():
-            """Clear input and results"""
-            website_entry.delete(0, tk.END)
-            approval_status_label.config(text="")
-            for i in results_tree.get_children():
-                results_tree.delete(i)
-        
-        # Button Frame
-        button_frame = ttk.Frame(root)
-        button_frame.pack(padx=10, pady=10)
-        
-        # Submit Button
-        submit_btn = ttk.Button(button_frame, text="Submit", command=submit_request)
-        submit_btn.pack(side=tk.LEFT, padx=5)
-        
-        # Clear Button
-        clear_btn = ttk.Button(button_frame, text="Clear", command=clear_fields)
-        clear_btn.pack(side=tk.LEFT, padx=5)
-        
-        root.mainloop()
+# Step 1: Load Data from Excel
+data = pd.read_excel("access_requests.xlsx")  # Replace with your file path
 
-# Usage example
-if __name__ == "__main__":
-    access_manager = UserAccessManager('user_access_historical_data.csv')
-    access_manager.create_gui()
+# Step 2: Preprocess Data
+data.dropna(inplace=True)
+data['Decision'] = data['Decision'].apply(lambda x: 1 if x == 'Granted' else 0)
+
+# Features and Target
+X = data['Comments'] + " " + data['Website']
+y = data['Decision']
+
+# Split the data
+X_train, X_test, y_train, y_test = train_test_split(X, y, test_size=0.2, random_state=42)
+
+# Step 3: Text Vectorization (TF-IDF)
+vectorizer = TfidfVectorizer(max_features=5000, stop_words='english')
+X_train_tfidf = vectorizer.fit_transform(X_train)
+X_test_tfidf = vectorizer.transform(X_test)
+
+# Train the Classifier
+model = RandomForestClassifier(random_state=42)
+model.fit(X_train_tfidf, y_train)
+
+# Save the Model and Vectorizer
+with open("decision_model.pkl", "wb") as model_file:
+    pickle.dump(model, model_file)
+with open("tfidf_vectorizer.pkl", "wb") as vectorizer_file:
+    pickle.dump(vectorizer, vectorizer_file)
+
+# Evaluate Model Accuracy
+y_pred_test = model.predict(X_test_tfidf)
+print("Test Accuracy:", accuracy_score(y_test, y_pred_test))
+
+# Step 4: Load GPT Model for Context Generation
+model_name = "gpt2"  # Replace with a suitable GPT model
+tokenizer = AutoTokenizer.from_pretrained(model_name)
+gpt_model = AutoModelForCausalLM.from_pretrained(model_name)
+
+# Enable GPU if available
+device = "cuda" if torch.cuda.is_available() else "cpu"
+text_generator = pipeline(
+    "text-generation",
+    model=gpt_model,
+    tokenizer=tokenizer,
+    truncation=True,
+    device=0 if device == "cuda" else -1
+)
+print(f"Using device: {device}")
+
+# Step 5: Predict Decision and Generate Context
+def predict_access_with_context(comment, website):
+    # Load the saved model and vectorizer
+    with open("decision_model.pkl", "rb") as model_file:
+        clf = pickle.load(model_file)
+    with open("tfidf_vectorizer.pkl", "rb") as vectorizer_file:
+        vectorizer = pickle.load(vectorizer_file)
+    
+    # Step 1: Predict Decision
+    input_text = comment + " " + website
+    input_vector = vectorizer.transform([input_text])
+    decision = clf.predict(input_vector)[0]
+    decision_text = "Granted" if decision == 1 else "Rejected"
+
+    # Step 2: Generate Context
+    prompt = (
+        f"Based on the following comment and website, explain why the decision was '{decision_text}'.\n"
+        f"Comment: {comment}\nWebsite: {website}\nExplanation:"
+    )
+    response = text_generator(
+        prompt,
+        max_length=100,
+        num_return_sequences=1,
+        pad_token_id=tokenizer.eos_token_id
+    )
+    context = response[0]['generated_text']
+
+    return {"Decision": decision_text, "Context": context}
+
+# Step 6: Test with New Data
+test_comment = "User is not authorized to access customer data directly."
+test_website = "devops.example.com"
+
+result = predict_access_with_context(test_comment, test_website)
+print("Decision:", result["Decision"])
+print("Context:", result["Context"])
