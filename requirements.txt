@@ -181,3 +181,136 @@ Set 4 :
 •	c) Pre-defined step repository
 •	d) Test execution report
 
+
+
+=================================================================
+
+Set 1: 
+1.	Which framework are you currently using for automation development and execution?
+Answer: c) BDD Framework
+2.	We do not use Selenium APIs for mainframe application testing because ______.
+Answer: Selenium APIs are designed for web-based UIs, not for mainframe applications.
+3.	Which automation tool is primarily used for automation development in your current framework?
+Answer: c) LeanFT
+4.	The programming language used for developing automation scripts in your framework is ______.
+Answer: Java
+5.	What is the significance of the runner file in script execution?
+Answer: b) It controls which scripts to run and their execution order.
+6.	We migrated from UFT to LeanFT for mainframe application testing because LeanFT provides better integration with ______.
+Answer: CI/CD pipelines and modern development workflows.
+7.	Can we perform DB2 testing by accessing backend tables using our framework?
+Answer: a) Yes, directly through SQL queries integrated into the framework.
+8.	The keywords 'Given,' 'When,' 'Then,' 'And,' and 'But' in a feature file indicate ______.
+Answer: The flow and structure of a BDD scenario.
+9.	True/False: If an automation script fails, the functional tester should immediately check the logs and debug the issue before reporting it as an application defect.
+Answer: True
+10.	How do you determine if a failed test case is due to a code issue or an application defect?
+Answer: a) Review the stack trace and debug the step definitions.
+11.	To ensure feature steps are mapped to step definitions, you can verify ______ in the codebase.
+Answer: The method bindings between feature steps and step definitions.
+12.	Why do we follow the BDD framework in automation?
+Answer: a) To align with business requirements and enhance collaboration.
+13.	True/False: Test data can be directly embedded in the feature file using Scenario Outline and Examples.
+Answer: True
+14.	A ______ expression in the step definition file allows dynamic values to be passed as arguments.
+Answer: Regular
+15.	How do you attach screenshots to failed test instances in the framework?
+Answer: b) Automatically capture and attach them via the reporting utility.
+________________________________________
+Set 2: 
+1.	Why are we not using Selenium APIs for mainframe application testing?
+Answer: d) Both a and c
+2.	The current automation tool we use for mainframe application development is ______.
+Answer: LeanFT
+3.	True/False: LeanFT was chosen for mainframe testing due to its seamless integration with existing frameworks and tools.
+Answer: True
+4.	What steps should you take as a functional tester if an automation script fails?
+Answer: d) All of the above
+5.	The keywords 'When,' 'Then,' 'And,' and 'But' in feature files help ______ the flow of a test scenario.
+Answer: Define
+6.	How can you check if a script failure is due to a code issue?
+Answer: d) All of the above
+7.	True/False: Backend DB2 testing can be automated in the current framework using database connectors and SQL queries.
+Answer: True
+8.	What is the importance of Scenario Outline in feature files?
+Answer: a) It allows execution of a single scenario multiple times with different data.
+9.	The runner file is primarily responsible for ______.
+Answer: Controlling execution flow and managing test scripts.
+10.	Which programming language is most commonly used in BDD automation frameworks?
+Answer: b) Java
+11.	True/False: The BDD framework is used because it bridges the gap between business requirements and test cases.
+Answer: True
+12.	To pass arrays or lists as arguments in feature steps, you can use ______ in step definitions.
+Answer: Regular expressions or data parsers.
+13.	Why is suite file execution important?
+Answer: d) All of the above
+14.	The framework allows dynamic tagging to execute specific test cases using ______.
+Answer: Tags
+15.	If test scripts fail repeatedly for the same scenario, what action should you take?
+Answer: d) All of the above
+Set 3: 
+1.	Where do we typically provide application user credentials in a BDD Cucumber framework?
+Answer: In the configuration or environment property files.
+2.	How do you debug Java code in the framework during test execution?
+Answer: By using breakpoints in an IDE like Eclipse or IntelliJ.
+3.	How do you check if a feature step in a feature file is mapped to a step definition?
+Answer: By verifying if the step is highlighted in the IDE or by running the framework in dry-run mode.
+4.	How do you feed test data to a feature file?
+Answer: Using Scenario Outline with Examples tables.
+5.	What is a Scenario or Scenario Outline in Cucumber?
+Answer: A Scenario is a single test case, while a Scenario Outline allows data-driven testing using multiple data sets.
+6.	How can test data be embedded directly into the feature file?
+Answer: By using the Examples keyword with Scenario Outline.
+7.	Which statements in the framework are used for reporting test outcomes?
+Answer: Assertions and log statements, such as assertTrue, assertEquals, or custom reporting utilities.
+8.	How do you export test execution reports to OpenText ALM?
+Answer: By configuring the ALM integration plugin or APIs to upload the results.
+9.	How can screenshots be attached to a specific test instance in ALM?
+Answer: By programmatically capturing the screenshot and using ALM’s API for attachment.
+10.	How do you run a specific set of test cases for execution?
+Answer: By tagging the tests and specifying the tags in the runner file.
+11.	How do you omit certain test cases from execution?
+Answer: By excluding the specific tags in the runner configuration.
+12.	What is the importance of suite file execution?
+Answer: It ensures controlled execution of grouped test cases for better management and reporting.
+13.	How do you determine if a predefined step is already available in the framework?
+Answer: By checking the step definition library or repository.
+14.	How can custom step definition methods be written if the implementation is not available?
+Answer: By writing new methods in the step definition file and linking them to feature steps.
+15.	How do you pass regular expressions to a feature step in a feature file to use variables as arguments?
+Answer: By defining regex patterns in the step definitions.
+________________________________________
+Set 4:
+1.	Why is the BDD framework followed for automation?
+Answer: To improve collaboration between technical and non-technical stakeholders.
+2.	What is the indication of 'Given,' 'When,' 'Then,' 'And,' and 'But' keywords in the feature file?
+Answer: They define the structure and flow of a test scenario in BDD.
+3.	Which programming language is predominantly used in your automation scripts?
+Answer: Java.
+4.	What should a functional tester do if an automation script fails?
+Answer: Debug the script, check logs, re-run the test, and validate against application requirements.
+5.	How do you check if a script failure is due to a code issue or an application defect?
+Answer: By debugging step definitions and validating logs against application behavior.
+6.	What does the runner file control in the framework?
+Answer: It controls the execution flow, test cases to run, and configuration setup.
+7.	Why was LeanFT chosen over UFT for mainframe application testing?
+Answer: Because LeanFT integrates better with modern frameworks and CI/CD pipelines.
+8.	Can backend DB2 testing be automated using the current framework?
+Answer: Yes, using SQL queries integrated into the framework.
+9.	How can an array of elements be passed to a feature step in a feature file?
+Answer: By defining regular expressions or using Examples tables in Scenario Outline.
+10.	How do you run smoke test scripts, and what is the usual frequency and completion time?
+Answer: By running tagged smoke tests in the runner file; they are typically executed after every code change and complete within a few minutes.
+11.	Why is it important to execute regression suites regularly?
+Answer: To ensure new changes do not impact existing functionality.
+12.	How do you pick regression scripts for automation?
+Answer: Based on priority, criticality, and coverage of existing application features.
+13.	How do you ensure feature steps are correctly mapped to step definitions?
+Answer: By using the dry-run mode or IDE integration for verification.
+14.	What should be done if an automation script fails consistently for the same scenario?
+Answer: Analyze logs, validate data, debug the issue, and collaborate with developers if needed.
+15.	Why is the suite file considered important in BDD frameworks?
+Answer: It organizes and manages test case execution effectively.
+
+
+
