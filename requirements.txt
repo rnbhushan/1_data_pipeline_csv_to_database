@@ -1,160 +1,183 @@
-import pandas as pd
-from sklearn.model_selection import train_test_split
-from sklearn.feature_extraction.text import TfidfVectorizer
-from sklearn.ensemble import RandomForestClassifier
-from sklearn.metrics import accuracy_score
-from transformers import pipeline, AutoModelForCausalLM, AutoTokenizer
-import pickle
-import torch
+Set 1:
+1.Which framework are you currently using for automation development and execution?
+•	a) Keyword-Driven Framework
+•	b) Data-Driven Framework
+•	c) BDD Framework
+•	d) Hybrid Framework
+2.We do not use Selenium APIs for mainframe application testing because ______.
+3. Which automation tool is primarily used for automation development in your current framework?
+•	a) Selenium
+•	b) UFT
+•	c) LeanFT
+•	d) Cucumber
+4. The programming language used for developing automation scripts in your framework is ______.
+5. What is the significance of the runner file in script execution?
+•	a) It handles the application’s configuration
+•	b) It controls which scripts to run and their execution order
+•	c) It generates reports after execution
+•	d) It defines the feature file
+6. We migrated from UFT to LeanFT for mainframe application testing because LeanFT provides better integration with ----------
+7.Can we perform DB2 testing by accessing backend tables using our framework?
+•	a) Yes, directly through SQL queries integrated into the framework
+•	b) No, it requires a separate testing tool
+•	c) Yes, but only through an external API
+•	d) No, DB2 cannot be tested via automation frameworks
+8. The keywords 'Given,' 'When,' 'Then,' 'And,' and 'But' in a feature file indicate ______.
+9.True/False: If an automation script fails, the functional tester should immediately check the logs and debug the issue before reporting it as an application defect.
+10. How do you determine if a failed test case is due to a code issue or an application defect?
+•	a) Review the stack trace and debug the step definitions
+•	b) Re-run the test case multiple times
+•	c) Directly report the failure to the development team
+•	d) Ignore the failure and move to the next test case
+11. To ensure feature steps are mapped to step definitions, you can verify ______ in the codebase.
+12. Why do we follow the BDD framework in automation?
+•	a) To align with business requirements and enhance collaboration
+•	b) To improve application performance testing
+•	c) To reduce execution time
+•	d) To simplify test data management
+13.True/False: Test data can be directly embedded in the feature file using Scenario Outline and Examples.
+14. A ______ expression in the step definition file allows dynamic values to be passed as arguments.
+15. How do you attach screenshots to failed test instances in the framework?
+•	a) Manually upload them to the report
+•	b) Automatically capture and attach them via the reporting utility
+•	c) Include them as part of the feature file comments
+•	d) Store them in a separate folder
 
-# Step 1: Load Data from Excel
-data = pd.read_excel("access_requests.xlsx")  # Replace with your file path
+Set 2 : 
 
-# Step 2: Preprocess Data
-data.dropna(inplace=True)
-data['Decision'] = data['Decision'].apply(lambda x: 1 if x == 'Granted' else 0)
-
-# Features and Target
-X = data['Comments'] + " " + data['Website']
-y = data['Decision']
-
-# Split the data
-X_train, X_test, y_train, y_test = train_test_split(X, y, test_size=0.2, random_state=42)
-
-# Step 3: Text Vectorization (TF-IDF)
-vectorizer = TfidfVectorizer(max_features=5000, stop_words='english')
-X_train_tfidf = vectorizer.fit_transform(X_train)
-X_test_tfidf = vectorizer.transform(X_test)
-
-# Train the Classifier
-model = RandomForestClassifier(random_state=42)
-model.fit(X_train_tfidf, y_train)
-
-# Save the Model and Vectorizer
-with open("decision_model.pkl", "wb") as model_file:
-    pickle.dump(model, model_file)
-with open("tfidf_vectorizer.pkl", "wb") as vectorizer_file:
-    pickle.dump(vectorizer, vectorizer_file)
-
-# Evaluate Model Accuracy
-y_pred_test = model.predict(X_test_tfidf)
-print("Test Accuracy:", accuracy_score(y_test, y_pred_test))
-
-# Step 4: Load GPT Model for Context Generation
-model_name = "gpt2"  # Replace with a suitable GPT model
-tokenizer = AutoTokenizer.from_pretrained(model_name)
-gpt_model = AutoModelForCausalLM.from_pretrained(model_name)
-
-# Enable GPU if available
-device = "cuda" if torch.cuda.is_available() else "cpu"
-text_generator = pipeline(
-    "text-generation",
-    model=gpt_model,
-    tokenizer=tokenizer,
-    truncation=True,
-    device=0 if device == "cuda" else -1
-)
-print(f"Using device: {device}")
-
-# Step 5: Predict Decision and Generate Context
-def predict_access_with_context(comment, website):
-    # Load the saved model and vectorizer
-    with open("decision_model.pkl", "rb") as model_file:
-        clf = pickle.load(model_file)
-    with open("tfidf_vectorizer.pkl", "rb") as vectorizer_file:
-        vectorizer = pickle.load(vectorizer_file)
-    
-    # Step 1: Predict Decision
-    input_text = comment + " " + website
-    input_vector = vectorizer.transform([input_text])
-    decision = clf.predict(input_vector)[0]
-    decision_text = "Granted" if decision == 1 else "Rejected"
-
-    # Step 2: Generate Context
-    prompt = (
-        f"Based on the following comment and website, explain why the decision was '{decision_text}'.\n"
-        f"Comment: {comment}\nWebsite: {website}\nExplanation:"
-    )
-    response = text_generator(
-        prompt,
-        max_length=100,
-        num_return_sequences=1,
-        pad_token_id=tokenizer.eos_token_id
-    )
-    context = response[0]['generated_text']
-
-    return {"Decision": decision_text, "Context": context}
-
-# Step 6: Test with New Data
-test_comment = "User is not authorized to access customer data directly."
-test_website = "devops.example.com"
-
-result = predict_access_with_context(test_comment, test_website)
-print("Decision:", result["Decision"])
-print("Context:", result["Context"])
-
-
-=====================
-
-3. Preload and Cache the Model
-If you have internet access, download and cache the model locally:
-
-Download the Model: Run this script to load and cache the gpt2 model and tokenizer:
-
-python
-Copy code
-from transformers import AutoModelForCausalLM, AutoTokenizer
-
-model_name = "gpt2"
-AutoModelForCausalLM.from_pretrained(model_name)
-AutoTokenizer.from_pretrained(model_name)
-print("Model and tokenizer successfully downloaded and cached!")
-Verify the Cache: By default, Hugging Face stores models in ~/.cache/huggingface/transformers/. Check this directory to ensure the gpt2 model and its files are present (e.g., config.json, pytorch_model.bin, tokenizer.json).
+1.Why are we not using Selenium APIs for mainframe application testing?
+•	a) They are not compatible with mainframe applications
+•	b) Selenium APIs do not support backend testing
+•	c) Mainframe applications do not involve web-based UIs
+•	d) Both a and c
+2. The current automation tool we use for mainframe application development is ______.
+3.True/False: LeanFT was chosen for mainframe testing due to its seamless integration with existing frameworks and tools.
+4. What steps should you take as a functional tester if an automation script fails?
+•	a) Debug the script and check logs for errors
+•	b) Re-run the test to verify consistency
+•	c) Validate the issue against application requirements
+•	d) All of the above
+5. The keywords 'When,' 'Then,' 'And,' and 'But' in feature files help ______ the flow of a test scenario.
+6. How can you check if a script failure is due to a code issue?
+•	a) Verify step definitions and debug the script
+•	b) Cross-check application logs for matching errors
+•	c) Validate the test data used
+•	d) All of the above
+7.True/False: Backend DB2 testing can be automated in the current framework using database connectors and SQL queries.
+8. What is the importance of Scenario Outline in feature files?
+•	a) It allows execution of a single scenario multiple times with different data
+•	b) It helps in testing performance under load
+•	c) It minimizes the need for step definitions
+•	d) It improves the readability of the test cases
+9. The runner file is primarily responsible for ______.
+10. Which programming language is most commonly used in BDD automation frameworks?
+•	a) Python
+•	b) Java
+•	c) C#
+•	d) JavaScript
+11.True/False: The BDD framework is used because it bridges the gap between business requirements and test cases.
+12: To pass arrays or lists as arguments in feature steps, you can use ______ in step definitions.
+13. Why is suite file execution important?
+•	a) It groups all related test cases for execution
+•	b) It ensures sequential execution of scenarios
+•	c) It provides better control over test execution
+•	d) All of the above
+14. The framework allows dynamic tagging to execute specific test cases using ______.
+15. If test scripts fail repeatedly for the same scenario, what action should you take?
+•	a) Debug and resolve the issue with developers
+•	b) Analyze application logs for potential defects
+•	c) Update the test data and re-execute
+•	d) All of the above
 
 
 
 
-4. Offline Mode Setup
-If the system doesn't have internet access:
+Set 3:
 
-Download the Model Files Manually:
 
-Visit the GPT-2 Model Page.
-Download the following files:
-config.json
-pytorch_model.bin
-vocab.json
-merges.txt
-tokenizer_config.json
-Save the Files Locally: Place these files in a directory, e.g., /path/to/local/gpt2.
+1.Where do we typically provide application user credentials in a BDD Cucumber framework?
+•	a) Feature file
+•	b) Step definition file
+•	c) Configuration file/System Environment Variables
+•	d) Test report file
+2.To debug Java code in an IDE, you must set a ______ and run the code in debug mode.
+3.How do you verify that a step in a feature file is mapped to a step definition?
+•	a) By checking the test data file
+•	b) By checking the regular expression in the step definition file
+•	c) By running the test and observing the execution
+•	d) By writing a custom report
+4.True/False: Test data can be provided directly in the feature file using Scenario Outline.
+5.A ______ in Cucumber allows you to execute the same test scenario with multiple sets of data.
+6.Which statement is used to log messages in the test execution report?
+•	a) System.out.println
+•	b) Reporter.log
+•	c) Console.write
+•	d) Log4j.print
+7.How do you export a test execution report to OpenText ALM?
+•	a) Directly from the test report
+•	b) By integrating ALM with the framework and using API calls
+•	c) By emailing the report
+•	d) Manually uploading it
+8.True/False: Screenshots can be attached to test instances in ALM automatically through the automation framework.
+9.A ______ file is used to group test cases for execution in a specific order
+10.How do you omit certain test cases from execution in a test suite?
+•	a) Remove them from the suite file
+•	b) Comment them out in the feature file
+•	c) Tag them with @Skip
+•	d) Delete their step definitions
+11.A suite file ensures that all selected test scripts are executed in a ______ manner.
+12.How is a health check-up test suite typically executed?
+•	a) Daily, with a completion time of under 10 minutes
+•	b) Weekly, with a completion time of under an hour
+•	c) Once a month, without a time constraint
+•	d) Ad hoc, based on the tester’s discretion
+13.True/False: Regression scripts are chosen for automation based on their frequency of execution and importance.
+14.A ______ in the step definition file ensures that a step in the feature file accepts dynamic values.
+15.How do you pass an array of elements to a feature file step?
+•	a) Using regular expressions in the step definition
+•	b) Using @DataProvider annotation
+•	c) By listing them in a table format in the feature file
+•	d) By providing them in the test report
 
-Load Model from Local Directory: Update your code to use the local directory instead of fetching from Hugging Face's servers:
 
-python
-Copy code
-from transformers import AutoModelForCausalLM, AutoTokenizer
-
-model_path = "/path/to/local/gpt2"
-model = AutoModelForCausalLM.from_pretrained(model_path)
-tokenizer = AutoTokenizer.from_pretrained(model_path)
-print("Loaded GPT-2 model and tokenizer from local directory!")
-5. Test with OpenAI GPT-3 or GPT-4 Instead
-If you're using OpenAI's GPT-3 or GPT-4, the model is accessed via API and doesn't require Hugging Face's libraries or downloads. Make sure:
-
-You have an active internet connection.
-Your OpenAI API key is configured correctly.
-Troubleshooting
-Check Permissions: Ensure you have the necessary permissions to read/write to the cache directory (~/.cache/huggingface/transformers).
-
-Clear Corrupted Cache: If files are partially downloaded or corrupted, clear the cache:
-
-bash
-Copy code
-rm -rf ~/.cache/huggingface/transformers
-Proxy Configuration: If you're behind a corporate firewall or proxy, configure proxy settings for Python.
-
-Alternative Solution
-If the above doesn't resolve the issue or you need immediate functionality, switch to OpenAI GPT (e.g., GPT-3 or GPT-4) as it only requires API access and doesn't rely on local caching.
-
-Let me know if you need further assistance!
+Set 4 : 
+1.How do you check if a pre-defined step is already implemented in the framework?
+•	a) Search for it in the feature file
+•	b) Look for its step definition in the codebase
+•	c) Run a sample test
+•	d) Write a new step
+2.True/False: Custom step definitions are only written when no matching pre-defined step exists in the framework.
+3.A ______ in the feature file allows you to pass variables as arguments to a step.
+4.Which keyword in the feature file defines multiple scenarios with varying test data?
+•	a) Scenario
+•	b) Scenario Outline
+•	c) Background
+•	d) Examples
+5.To provide test data directly within a feature file, use the ______ keyword followed by a data table.
+6.True/False: The frequency of smoke test execution is typically high to ensure basic functionalities are always validated.
+7.How do you attach screenshots to test instances in OpenText ALM?
+•	a) Include them in the execution report
+•	b) Use an API integration to upload them
+•	c) Add them manually
+•	d) Save them in the test data file
+8.A ______ test suite contains critical scripts to verify core functionalities quickly.
+9.How do you omit a set of test cases during execution using Cucumber?
+•	a) Use @Ignore tag in the feature file
+•	b) Exclude their tags in the suite configuration
+•	c) Remove them from the suite file manually
+•	d) Comment them in the step definition file
+10.True/False: Execution order of test cases in a suite file can be defined explicitly.
+11.A ______ expression is used in the step definition to match a step in the feature file.
+12.Which method is commonly used to debug a failing automation test?
+•	a) By analyzing the logs
+•	b) By re-running the entire suite
+•	c) By commenting out unrelated tests
+•	d) By writing a new test
+13.True/False: Reports in automation frameworks can include custom messages using logging tools like Log4j or Reporter.log.
+14. Regression scripts are prioritized for automation if they have a high ______ and are prone to defects.
+15. Which framework feature ensures that no duplicate steps are written for the same functionality?
+•	a) Regular expressions
+•	b) Step definition validation
+•	c) Pre-defined step repository
+•	d) Test execution report
 
