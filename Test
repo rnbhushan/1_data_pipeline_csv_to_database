@@ -1,0 +1,157 @@
+### **Objective-Type Questions on Automation Tool Basics, Setups, Mapping, Object Identification, Bitbucket Folder Structure, and Script Status**
+
+---
+
+### **Set 1: Automation Tool Basics and Setup**  
+1. **Which tool is used for mainframe automation in your framework?**  
+   - a) Selenium  
+   - b) LeanFT  
+   - c) UFT  
+   - d) JUnit  
+   **Answer**: b) LeanFT  
+
+2. **What is the first step in setting up an automation tool in a new environment?**  
+   - a) Run test scripts directly  
+   - b) Install dependencies and configure environment variables  
+   - c) Create test cases in the framework  
+   - d) Update test data  
+   **Answer**: b) Install dependencies and configure environment variables  
+
+3. **Why are environment variables important in automation tools?**  
+   - a) To store configuration and external resource paths  
+   - b) To reduce execution time  
+   - c) To generate test reports  
+   - d) To define feature files  
+   **Answer**: a) To store configuration and external resource paths  
+
+4. **Which property is most commonly configured in automation tool setups?**  
+   - a) Test data  
+   - b) Object repository  
+   - c) Environment variables  
+   - d) Debugging logs  
+   **Answer**: c) Environment variables  
+
+5. **Which type of testing is LeanFT most suitable for?**  
+   - a) Backend testing  
+   - b) Mobile testing  
+   - c) Mainframe application testing  
+   - d) Performance testing  
+   **Answer**: c) Mainframe application testing  
+
+---
+
+### **Set 2: Mapping and Object Identification**  
+6. **What is object identification in automation testing?**  
+   - a) Mapping feature files to step definitions  
+   - b) Recognizing and interacting with UI elements  
+   - c) Configuring test execution reports  
+   - d) Debugging automation scripts  
+   **Answer**: b) Recognizing and interacting with UI elements  
+
+7. **Which property is NOT commonly used for object identification?**  
+   - a) XPath  
+   - b) Object ID  
+   - c) Class  
+   - d) Feature file path  
+   **Answer**: d) Feature file path  
+
+8. **How are dynamic objects handled in automation?**  
+   - a) By using fixed locators  
+   - b) By using regular expressions or parameterized locators  
+   - c) By using a different tool  
+   - d) By hardcoding values  
+   **Answer**: b) By using regular expressions or parameterized locators  
+
+9. **The keywords 'Given,' 'When,' and 'Then' in feature files are used to ______.**  
+   - a) Identify UI objects  
+   - b) Define the flow of test scenarios  
+   - c) Configure the framework  
+   - d) Log test results  
+   **Answer**: b) Define the flow of test scenarios  
+
+10. **What is the purpose of an object repository in automation frameworks?**  
+    - a) To store and manage test cases  
+    - b) To store and manage UI element properties  
+    - c) To maintain execution logs  
+    - d) To control test execution order  
+    **Answer**: b) To store and manage UI element properties  
+
+---
+
+### **Set 3: Bitbucket Folder Structure**  
+11. **What is stored in the `src/main/java` folder in a typical automation project?**  
+    - a) Core framework code  
+    - b) Test cases and step definitions  
+    - c) Configuration files  
+    - d) Reports  
+    **Answer**: a) Core framework code  
+
+12. **What is the purpose of a `README` file in Bitbucket repositories?**  
+    - a) To log test execution results  
+    - b) To provide project setup and usage guidelines  
+    - c) To store feature files  
+    - d) To execute scripts  
+    **Answer**: b) To provide project setup and usage guidelines  
+
+13. **How do you pull the latest automation scripts from Bitbucket to your local system?**  
+    - a) Use the `git add` command  
+    - b) Use the `git pull` command  
+    - c) Use the `git commit` command  
+    - d) Use the `git clone` command  
+    **Answer**: b) Use the `git pull` command  
+
+14. **Which folder typically stores test execution reports in Bitbucket?**  
+    - a) `src/main/java`  
+    - b) `src/test/java`  
+    - c) `resources`  
+    - d) `reports`  
+    **Answer**: d) `reports`  
+
+15. **What is the purpose of the `src/test/java` folder?**  
+    - a) To store test cases and step definitions  
+    - b) To store feature files  
+    - c) To store logs  
+    - d) To store object repositories  
+    **Answer**: a) To store test cases and step definitions  
+
+---
+
+### **Set 4: Verifying Script Status and Results**  
+16. **What does a "Pass" status indicate in test execution?**  
+    - a) Test case failed due to application defects  
+    - b) Test case was executed successfully  
+    - c) Test data was incorrect  
+    - d) Test case is not defined  
+    **Answer**: b) Test case was executed successfully  
+
+17. **What action should be taken if the test results are not logged properly?**  
+    - a) Ignore the issue  
+    - b) Debug the logging configuration in the framework  
+    - c) Re-run the test scripts  
+    - d) Update the feature files  
+    **Answer**: b) Debug the logging configuration in the framework  
+
+18. **How do you verify the script status after execution?**  
+    - a) By reviewing the feature file  
+    - b) By checking execution logs or reports  
+    - c) By reviewing object repository files  
+    - d) By running the scripts again  
+    **Answer**: b) By checking execution logs or reports  
+
+19. **What is the purpose of the test execution result file?**  
+    - a) To store test data  
+    - b) To provide execution status and error logs  
+    - c) To manage feature files  
+    - d) To debug step definitions  
+    **Answer**: b) To provide execution status and error logs  
+
+20. **How can screenshots of failed tests be attached automatically to reports?**  
+    - a) By manually uploading them  
+    - b) By integrating a screenshot utility in the framework  
+    - c) By using comments in the feature file  
+    - d) By storing them in a separate folder manually  
+    **Answer**: b) By integrating a screenshot utility in the framework  
+
+---
+
+Let me know if you'd like additional sets or modifications!
