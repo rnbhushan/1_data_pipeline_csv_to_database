@@ -1,0 +1,88 @@
+import org.apache.poi.ss.usermodel.*;
+import org.apache.poi.xssf.usermodel.XSSFWorkbook;
+
+import java.io.File;
+import java.io.FileInputStream;
+import java.sql.*;
+
+public class ExcelToDatabase {
+    public static void main(String[] args) {
+        String excelFilePath = "C:\\Users\\YourUser\\Documents\\data.xlsx";  // Update this path
+        String tableName = "EmployeeData";
+
+        try {
+            // Load Excel data into HSQLDB
+            loadExcelToDatabase(excelFilePath, tableName);
+
+            // Execute SQL query on Excel data
+            executeSQLQuery(tableName);
+        } catch (Exception e) {
+            e.printStackTrace();
+        }
+    }
+
+    public static void loadExcelToDatabase(String excelFilePath, String tableName) throws Exception {
+        Connection conn = DriverManager.getConnection("jdbc:hsqldb:mem:mymemdb", "SA", "");
+        Statement stmt = conn.createStatement();
+
+        // Read Excel File
+        FileInputStream fis = new FileInputStream(new File(excelFilePath));
+        Workbook workbook = new XSSFWorkbook(fis);
+        Sheet sheet = workbook.getSheetAt(0);
+        Row headerRow = sheet.getRow(0);
+
+        // Creating Table from Excel Header
+        StringBuilder createTableQuery = new StringBuilder("CREATE TABLE " + tableName + " (");
+        int columnCount = headerRow.getPhysicalNumberOfCells();
+
+        for (int i = 0; i < columnCount; i++) {
+            createTableQuery.append(headerRow.getCell(i).getStringCellValue()).append(" VARCHAR(255), ");
+        }
+        createTableQuery.setLength(createTableQuery.length() - 2);  // Remove last comma
+        createTableQuery.append(")");
+
+        stmt.executeUpdate(createTableQuery.toString());
+
+        // Inserting Data from Excel into HSQLDB Table
+        for (int i = 1; i <= sheet.getLastRowNum(); i++) {
+            Row row = sheet.getRow(i);
+            StringBuilder insertQuery = new StringBuilder("INSERT INTO " + tableName + " VALUES (");
+
+            for (int j = 0; j < columnCount; j++) {
+                Cell cell = row.getCell(j);
+                insertQuery.append("'").append(cell.toString()).append("', ");
+            }
+            insertQuery.setLength(insertQuery.length() - 2);
+            insertQuery.append(")");
+
+            stmt.executeUpdate(insertQuery.toString());
+        }
+
+        workbook.close();
+        conn.close();
+        System.out.println("Excel Data Loaded into In-Memory HSQLDB Successfully!");
+    }
+
+    public static void executeSQLQuery(String tableName) throws Exception {
+        Connection conn = DriverManager.getConnection("jdbc:hsqldb:mem:mymemdb", "SA", "");
+        Statement stmt = conn.createStatement();
+
+        // Example SQL Query
+        String sqlQuery = "SELECT * FROM " + tableName + " WHERE Department = 'IT'";  
+        ResultSet rs = stmt.executeQuery(sqlQuery);
+
+        // Print Results
+        ResultSetMetaData rsmd = rs.getMetaData();
+        int columnCount = rsmd.getColumnCount();
+        
+        System.out.println("\nSQL Query Results:");
+        while (rs.next()) {
+            for (int i = 1; i <= columnCount; i++) {
+                System.out.print(rsmd.getColumnName(i) + ": " + rs.getString(i) + " | ");
+            }
+            System.out.println();
+        }
+
+        conn.close();
+    }
+}
