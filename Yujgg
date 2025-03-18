@@ -1,0 +1,48 @@
+import java.io.*;
+import java.util.Properties;
+
+public class RunConfigModifier {
+
+    public static void updateRunConfig(String[] args, String key, String newValue) {
+        try {
+            // Retrieve the runtime config file path dynamically
+            String configFilePath = Runenvironment.getRunconfigfilename(args);
+            File configFile = new File(configFilePath);
+
+            if (!configFile.exists()) {
+                System.err.println("Config file not found: " + configFilePath);
+                return;
+            }
+
+            Properties properties = new Properties();
+
+            // Load existing properties
+            try (FileInputStream fis = new FileInputStream(configFile)) {
+                properties.load(fis);
+            }
+
+            // Update the required property
+            properties.setProperty(key, newValue);
+
+            // Save the updated properties back
+            try (FileOutputStream fos = new FileOutputStream(configFile)) {
+                properties.store(fos, "Updated property: " + key);
+                System.out.println("Updated property: " + key + " = " + newValue);
+            }
+
+            // Reload the updated properties into the framework
+            Runenvironment.getInstance(new FileInputStream(configFile), args);
+
+        } catch (IOException e) {
+            e.printStackTrace();
+        }
+    }
+
+    public static void main(String[] args) {
+        // Example usage
+        String keyToUpdate = "cucumber.features"; // Update as per requirement
+        String newValue = "src/test/resources/features/MyFeature.feature"; // Example new value
+
+        updateRunConfig(args, keyToUpdate, newValue);
+    }
+}
