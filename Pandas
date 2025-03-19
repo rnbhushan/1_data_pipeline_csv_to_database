@@ -1,0 +1,58 @@
+import java.io.BufferedReader;
+import java.io.InputStreamReader;
+
+public class RunPython {
+    public static void main(String[] args) {
+        try {
+            // Specify the Python executable and script
+            String pythonExecutable = "python";  // or "python3" based on your OS
+            String scriptPath = "C:\\path\\to\\script.py"; // Update with actual path
+
+            // Run the Python script
+            ProcessBuilder processBuilder = new ProcessBuilder(pythonExecutable, scriptPath);
+            Process process = processBuilder.start();
+
+            // Capture the output
+            BufferedReader reader = new BufferedReader(new InputStreamReader(process.getInputStream()));
+            String line;
+            while ((line = reader.readLine()) != null) {
+                System.out.println(line);
+            }
+
+            // Wait for the process to complete
+            int exitCode = process.waitFor();
+            System.out.println("Python script executed with exit code: " + exitCode);
+        } catch (Exception e) {
+            e.printStackTrace();
+        }
+    }
+}
+
+
+
+
+import pandas as pd
+
+# Load the Excel file
+input_file = "input_data.xlsx"
+df = pd.read_excel(input_file, sheet_name="Sheet1")  # Change sheet name if needed
+
+# Apply filter condition (Example: Filtering rows where 'Salary' > 50000)
+filtered_df = df[df["Salary"] > 50000]
+
+# Convert the filtered DataFrame to a string to store in a single cell
+filtered_data_str = filtered_df.to_string(index=False)
+
+# Create a new DataFrame to store the result in a single cell
+result_df = pd.DataFrame({"Filtered_Result": [filtered_data_str]})
+
+# Save the result into another Excel file inside a specific cell (A1)
+output_file = "filtered_output.xlsx"
+with pd.ExcelWriter(output_file, engine="xlsxwriter") as writer:
+    result_df.to_excel(writer, sheet_name="FilteredData", index=False, startrow=0, startcol=0)
+
+print(f"Filtered data saved successfully in {output_file}")
+
+
+
+
