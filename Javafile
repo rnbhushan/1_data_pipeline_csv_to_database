@@ -1,0 +1,48 @@
+import org.apache.poi.ss.usermodel.*;
+import org.apache.poi.xssf.usermodel.XSSFWorkbook;
+import java.io.*;
+
+public class ExcelFilterConcat {
+    public static void main(String[] args) {
+        String inputFile = "data.xlsx";  // Input Excel file
+        String outputFile = "filtered_data.xlsx";  // Output Excel file
+
+        try (FileInputStream fis = new FileInputStream(inputFile);
+             Workbook workbook = new XSSFWorkbook(fis)) {
+
+            Sheet sheet = workbook.getSheetAt(0);
+            Workbook newWorkbook = new XSSFWorkbook();
+            Sheet newSheet = newWorkbook.createSheet("Filtered Data");
+
+            StringBuilder salaryConcat = new StringBuilder();  // To store concatenated salaries
+
+            for (Row row : sheet) {
+                Cell salaryCell = row.getCell(2); // Assuming salary is in the 3rd column (Index 2)
+                if (row.getRowNum() > 0 && salaryCell != null && salaryCell.getCellType() == CellType.NUMERIC && salaryCell.getNumericCellValue() > 5000) {
+                    if (salaryConcat.length() > 0) {
+                        salaryConcat.append(", ");  // Add comma separator
+                    }
+                    salaryConcat.append((int) salaryCell.getNumericCellValue());  // Convert to integer
+                }
+            }
+
+            // Write concatenated salary to a new Excel file
+            Row newRow = newSheet.createRow(0);
+            Cell headerCell = newRow.createCell(0);
+            headerCell.setCellValue("Concatenated Salaries");
+
+            Row dataRow = newSheet.createRow(1);
+            Cell dataCell = dataRow.createCell(0);
+            dataCell.setCellValue(salaryConcat.toString()); // Store concatenated salaries in a single cell
+
+            // Save new file
+            try (FileOutputStream fos = new FileOutputStream(outputFile)) {
+                newWorkbook.write(fos);
+                System.out.println("Filtered Excel file created successfully: " + outputFile);
+            }
+            newWorkbook.close();
+        } catch (IOException e) {
+            e.printStackTrace();
+        }
+    }
+}
