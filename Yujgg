@@ -196,5 +196,75 @@ public class PdfSplitter {
         reader.close();
     }
 }
+ooooooooooooooo
+
+
+import com.itextpdf.text.Document;
+import com.itextpdf.text.pdf.PdfReader;
+import com.itextpdf.text.pdf.PdfSmartCopy;
+
+import java.io.*;
+
+public class PdfSplitter {
+
+    private static final long MAX_SIZE_BYTES = 3 * 1024 * 1024; // 3MB
+
+    public static void main(String[] args) throws Exception {
+        String sourceFile = "source.pdf";
+        String outputDir = "split_output/";
+        splitPdfIntoParts(sourceFile, outputDir);
+    }
+
+    public static void splitPdfIntoParts(String sourcePath, String outputDir) throws Exception {
+        PdfReader reader = new PdfReader(sourcePath);
+        int totalPages = reader.getNumberOfPages();
+        new File(outputDir).mkdirs();
+
+        int partNumber = 1;
+        int currentPage = 1;
+
+        while (currentPage <= totalPages) {
+            ByteArrayOutputStream baos = new ByteArrayOutputStream();
+            Document document = new Document();
+            PdfSmartCopy copy = new PdfSmartCopy(document, baos);
+            document.open();
+
+            int startPage = currentPage;
+
+            while (currentPage <= totalPages) {
+                copy.addPage(copy.getImportedPage(reader, currentPage));
+                copy.flush();
+
+                ByteArrayOutputStream tempOutput = new ByteArrayOutputStream();
+                baos.writeTo(tempOutput);
+
+                if (tempOutput.size() > MAX_SIZE_BYTES) {
+                    if (currentPage == startPage) {
+                        System.out.println("Single page size exceeds 3MB at page " + currentPage);
+                        break;
+                    } else {
+                        currentPage--; // rollback the oversized page
+                        break;
+                    }
+                }
+
+                currentPage++;
+            }
+
+            document.close();
+
+            String outputFilePath = outputDir + "part_" + partNumber + ".pdf";
+            try (FileOutputStream fos = new FileOutputStream(outputFilePath)) {
+                baos.writeTo(fos);
+            }
+
+            System.out.println("Created: " + outputFilePath);
+            partNumber++;
+            currentPage++; // move to the next page for next part
+        }
+
+        reader.close();
+    }
+}
 
 
