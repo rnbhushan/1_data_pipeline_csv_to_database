@@ -267,4 +267,30 @@ public class PdfSplitter {
     }
 }
 
+llllllllllll
+
+while (currentPage <= totalPages) {
+    // Simulate adding this page to a temporary document
+    ByteArrayOutputStream trialBaos = new ByteArrayOutputStream();
+    Document trialDoc = new Document();
+    PdfSmartCopy trialCopy = new PdfSmartCopy(trialDoc, trialBaos);
+    trialDoc.open();
+    trialCopy.addPage(trialCopy.getImportedPage(reader, currentPage));
+    trialDoc.close();
+
+    // Check if adding this page will exceed size
+    long newSize = baos.size() + trialBaos.size();
+    if (newSize > MAX_SIZE_BYTES) {
+        if (currentPage == startPage) {
+            // Even one page is too big
+            System.out.println("Page " + currentPage + " is larger than 3MB alone.");
+            break;
+        }
+        break; // stop here and start new file
+    }
+
+    // Safe to add to real output
+    copy.addPage(copy.getImportedPage(reader, currentPage));
+    currentPage++;
+}
 
