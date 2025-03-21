@@ -46,3 +46,84 @@ public class RunConfigModifier {
         updateRunConfig(args, keyToUpdate, newValue);
     }
 }
+
+
+
+
+
+
+
+
+import org.apache.poi.ss.usermodel.*;
+import org.apache.poi.hssf.usermodel.HSSFWorkbook; // For .xls format
+import org.apache.poi.xssf.usermodel.XSSFWorkbook; // For .xlsx format
+import java.io.*;
+
+public class ExcelUpdateExistingXLS {
+    public static void main(String[] args) {
+        String inputFile = "data.xlsx";  // Source file (.xlsx)
+        String outputFile = "existing_data.xls";  // Target file (.xls) to update
+        int targetSheetIndex = 0;  // Sheet index in the existing .xls file
+        int targetRowIndex = 1;  // Row index to update (0-based index)
+        int targetCellIndex = 1;  // Column index to update (0-based index)
+
+        try (FileInputStream fisXlsx = new FileInputStream(inputFile);
+             Workbook xlsxWorkbook = new XSSFWorkbook(fisXlsx)) { // Read .xlsx file
+
+            // Open the existing .xls file (handle cases where the file might not exist)
+            File xlsFile = new File(outputFile);
+            Workbook xlsWorkbook;
+            
+            if (xlsFile.exists()) {
+                try (FileInputStream fisXls = new FileInputStream(xlsFile)) {
+                    xlsWorkbook = new HSSFWorkbook(fisXls); // Read existing .xls file
+                }
+            } else {
+                xlsWorkbook = new HSSFWorkbook(); // Create new .xls file if it doesn't exist
+                xlsWorkbook.createSheet("Sheet1"); // Ensure at least one sheet exists
+            }
+
+            Sheet xlsxSheet = xlsxWorkbook.getSheetAt(0); // Read from .xlsx
+            Sheet xlsSheet = xlsWorkbook.getSheetAt(targetSheetIndex); // Update .xls
+
+            StringBuilder concatenatedValues = new StringBuilder();  // Store concatenated values
+
+            for (Row row : xlsxSheet) {
+                Cell flagCell = row.getCell(2); // "Flag" column (3rd column)
+                Cell valueCell = row.getCell(1); // Column to concatenate (2nd column)
+
+                if (row.getRowNum() > 0 && flagCell != null && flagCell.getCellType() == CellType.STRING
+                        && "Yes".equalsIgnoreCase(flagCell.getStringCellValue().trim())
+                        && valueCell != null && valueCell.getCellType() == CellType.STRING) {
+                    
+                    if (concatenatedValues.length() > 0) {
+                        concatenatedValues.append(", ");  // Add separator
+                    }
+                    concatenatedValues.append(valueCell.getStringCellValue());  // Append value
+                }
+            }
+
+            // Update the specified cell in the existing .xls file
+            Row targetRow = xlsSheet.getRow(targetRowIndex);
+            if (targetRow == null) {
+                targetRow = xlsSheet.createRow(targetRowIndex); // Create row if it doesn't exist
+            }
+            Cell targetCell = targetRow.getCell(targetCellIndex);
+            if (targetCell == null) {
+                targetCell = targetRow.createCell(targetCellIndex); // Create cell if it doesn't exist
+            }
+            targetCell.setCellValue(concatenatedValues.toString()); // Update cell with concatenated values
+
+            // Save updates to existing .xls file
+            try (FileOutputStream fos = new FileOutputStream(outputFile)) {
+                xlsWorkbook.write(fos);
+                xlsWorkbook.close();  // Close workbook properly
+                System.out.println("Updated existing Excel file successfully: " + outputFile);
+            }
+
+        } catch (IOException e) {
+            e.printStackTrace();
+        }
+    }
+}
+
