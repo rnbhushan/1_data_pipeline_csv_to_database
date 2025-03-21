@@ -127,3 +127,74 @@ public class ExcelUpdateExistingXLS {
     }
 }
 
+
+
+⁸8888⁸888888888888
+
+
+import com.itextpdf.text.Document;
+import com.itextpdf.text.pdf.PdfReader;
+import com.itextpdf.text.pdf.PdfSmartCopy;
+
+import java.io.*;
+
+public class PdfSplitter {
+
+    private static final long MAX_SIZE_BYTES = 3 * 1024 * 1024; // 3MB
+
+    public static void main(String[] args) throws Exception {
+        String sourcePath = "source.pdf";
+        String outputDir = "split_output/";
+        splitPdfBySize(sourcePath, outputDir);
+    }
+
+    public static void splitPdfBySize(String sourcePath, String outputDir) throws Exception {
+        PdfReader reader = new PdfReader(sourcePath);
+        int totalPages = reader.getNumberOfPages();
+        new File(outputDir).mkdirs();
+
+        int partNumber = 1;
+        int startPage = 1;
+
+        while (startPage <= totalPages) {
+            ByteArrayOutputStream baos = new ByteArrayOutputStream();
+            Document document = new Document();
+            PdfSmartCopy copy = new PdfSmartCopy(document, baos);
+            document.open();
+
+            for (int i = startPage; i <= totalPages; i++) {
+                copy.addPage(copy.getImportedPage(reader, i));
+
+                copy.flush();
+                copy.freeReader(reader);
+
+                // Temporarily close and check size
+                document.close();
+                long currentSize = baos.size();
+                if (currentSize >= MAX_SIZE_BYTES) {
+                    // Too large? Don't include current page in this split
+                    baos.reset();
+                    document = new Document();
+                    copy = new PdfSmartCopy(document, baos);
+                    document.open();
+                    break;
+                }
+
+                startPage = i + 1;
+            }
+
+            // Save the part file
+            String outputPath = outputDir + "part_" + partNumber + ".pdf";
+            try (FileOutputStream fos = new FileOutputStream(outputPath)) {
+                baos.writeTo(fos);
+            }
+
+            System.out.println("Created: " + outputPath);
+            partNumber++;
+        }
+
+        reader.close();
+    }
+}
+
+
