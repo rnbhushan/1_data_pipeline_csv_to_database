@@ -1,0 +1,35 @@
+import ctypes
+
+class QWS3270Session:
+    def __init__(self, session_id="A", dll_path="whllapi.dll", screen_cols=80):
+        self.session_id = session_id.encode("ascii")
+        self.screen_cols = screen_cols
+
+        # Load DLL
+        self.whllapi = ctypes.WinDLL(dll_path)
+
+        # Try both possible names; if missing, load by ordinal
+        try:
+            self.WHLLAPI = self.whllapi.WHLLAPI
+        except AttributeError:
+            try:
+                self.WHLLAPI = self.whllapi.Whllapi
+            except AttributeError:
+                # Load by ordinal (most QWS3270 DLLs export WHLLAPI as ordinal #1)
+                prototype = ctypes.WINFUNCTYPE(
+                    None,
+                    ctypes.POINTER(ctypes.c_int),
+                    ctypes.c_char_p,
+                    ctypes.POINTER(ctypes.c_int),
+                    ctypes.POINTER(ctypes.c_int)
+                )
+                self.WHLLAPI = prototype(("WHLLAPI", self.whllapi), 1)  # ordinal #1
+
+        # Set argtypes if loaded by name
+        self.WHLLAPI.argtypes = [
+            ctypes.POINTER(ctypes.c_int),
+            ctypes.c_char_p,
+            ctypes.POINTER(ctypes.c_int),
+            ctypes.POINTER(ctypes.c_int)
+        ]
+        self.WHLLAPI.restype = None
