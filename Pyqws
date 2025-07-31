@@ -1,0 +1,57 @@
+import ctypes
+
+class QWS3270Session:
+    def __init__(self, session_id="A", dll_path="whllapi.dll", screen_cols=80):
+        self.session_id = session_id.encode("ascii")
+        self.screen_cols = screen_cols  # default 80x24 terminal
+        self.whllapi = ctypes.WinDLL(dll_path)
+        self.WHLLAPI = self.whllapi.WHLLAPI
+
+    def _call_whllapi(self, func_code, data, length):
+        func = ctypes.c_int(func_code)
+        data_buf = ctypes.create_string_buffer(data, 4096)
+        length_c = ctypes.c_int(length)
+        rc = ctypes.c_int(0)
+        self.WHLLAPI(ctypes.byref(func), data_buf, ctypes.byref(length_c), ctypes.byref(rc))
+        return data_buf, length_c.value, rc.value
+
+    def connect(self):
+        data = self.session_id
+        _, _, rc = self._call_whllapi(1, data, 1)  # Function 1: Connect
+        return rc
+
+    def disconnect(self):
+        data = self.session_id
+        _, _, rc = self._call_whllapi(2, data, 1)  # Function 2: Disconnect
+        return rc
+
+    def get_string(self, row, col_start, col_end):
+        """
+        Retrieve screen text between row/col range.
+        row: 1-based row number
+        col_start: starting column (1-based)
+        col_end: ending column (1-based)
+        """
+        if col_end < col_start:
+            raise ValueError("col_end must be >= col_start")
+
+        length = col_end - col_start + 1
+        position = (row - 1) * self.screen_cols + col_start  # Convert to absolute 1-based position
+
+        # WHLLAPI Function 8 header: 5 bytes position + 5 bytes length
+        header = f"{position:05d}{length:05d}".encode("ascii")
+        data = header + b" " * (4096 - 10)
+
+        buf, _, rc = self._call_whllapi(8, data, length + 10)
+
+        if rc == 0:
+            screen_data = buf.raw[10:10+length].decode("ascii", errors="ignore")
+            return screen_data.strip()
+        else:
+            return None
+
+    def send_keys(self, text):
+        # Function 3: Send Keys
+        data = self.session_id + text.encode("ascii")
+        _, _, rc = self._call_whllapi(3, data, len(data))
+        return rc
