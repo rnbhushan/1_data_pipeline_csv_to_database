@@ -1,0 +1,57 @@
+import ctypes
+
+# Load WHLLAPI DLL
+whllapi = ctypes.WinDLL("whllapi.dll")
+
+# Define WHLLAPI function prototype
+whllapi.WHLLAPI.argtypes = [
+    ctypes.POINTER(ctypes.c_short),  # Function number
+    ctypes.c_char_p,                 # Data buffer
+    ctypes.POINTER(ctypes.c_short),  # Length
+    ctypes.POINTER(ctypes.c_short)   # Return code
+]
+
+# Generic WHLLAPI call wrapper
+def hllapi_call(function, data, length, ret_code=0):
+    func_num = ctypes.c_short(function)
+    buf = ctypes.create_string_buffer(data.encode())
+    data_len = ctypes.c_short(length)
+    rc = ctypes.c_short(ret_code)
+
+    whllapi.WHLLAPI(ctypes.byref(func_num), buf, ctypes.byref(data_len), ctypes.byref(rc))
+    return rc.value, buf.value.decode(errors="ignore")
+
+# Connect session
+def connect_session(session_id="A"):
+    rc, _ = hllapi_call(1, session_id, len(session_id))
+    return rc
+
+# Disconnect session
+def disconnect_session(session_id="A"):
+    rc, _ = hllapi_call(2, session_id, len(session_id))
+    return rc
+
+# Get string using row, column, and length
+def get_string(row, column, length):
+    # Calculate 0-based position for WHLLAPI
+    position = (row - 1) * 80 + (column - 1)
+
+    # WHLLAPI function 4 expects offset+length as 8-char string (position + length)
+    data = f"{position:04d}{length:04d}"
+    screen_buffer = " " * length
+
+    rc, screen_content = hllapi_call(4, data + screen_buffer, len(data + screen_buffer))
+
+    if rc == 0:
+        return screen_content[8:].strip()  # Skip first 8 chars (position/length header)
+    else:
+        return f"Error reading screen, RC={rc}"
+
+# Example usage
+if __name__ == "__main__":
+    if connect_session("A") == 0:
+        text = get_string(5, 10, 20)   # Read 20 chars from Row 5, Col 10
+        print("Screen Content:", text)
+        disconnect_session("A")
+    else:
+        print("Unable to connect to session")
