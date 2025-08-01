@@ -1,0 +1,937 @@
+import com.sun.jna.Library;
+import com.sun.jna.Native;
+import com.sun.jna.Pointer;
+import com.sun.jna.ptr.IntByReference;
+import java.nio.ByteBuffer;
+import java.nio.ByteOrder;
+import java.util.Arrays;
+import java.util.HashMap;
+import java.util.List;
+import java.util.Map;
+
+/**
+ * Complete Java interface for QWS3270 Terminal Emulator using Whllapi.dll
+ * Supports row/column positioning for both reading and writing text
+ */
+public class QWS3270Interface {
+    
+    // JNA interface for the WHLLAPI DLL
+    public interface WHLLAPI extends Library {
+        WHLLAPI INSTANCE = (WHLLAPI) Native.loadLibrary("whllapi", WHLLAPI.class);
+        
+        void WinHLLAPI(IntByReference functionNumber, byte[] dataString, 
+                      IntByReference length, IntByReference returnCode);
+    }
+    
+    // Constants
+    private static final int SCREEN_WIDTH = 80;
+    private static final int SCREEN_HEIGHT = 24;
+    private static final int SCREEN_BUFFER_SIZE = SCREEN_WIDTH * SCREEN_HEIGHT;
+    
+    // Instance variables
+    private boolean connected = false;
+    private String sessionId = null;
+    private Map<String, String> keyMap;
+    
+    /**
+     * Constructor - Initialize the QWS3270 interface
+     */
+    public QWS3270Interface() {
+        initializeKeyMap();
+    }
+    
+    /**
+     * Initialize the key mapping for special keys
+     */
+    private void initializeKeyMap() {
+        keyMap = new HashMap<>();
+        keyMap.put("ENTER", "@E");
+        keyMap.put("TAB", "@T");
+        keyMap.put("BACKTAB", "@B");
+        keyMap.put("F1", "@1"); keyMap.put("F2", "@2"); keyMap.put("F3", "@3"); keyMap.put("F4", "@4");
+        keyMap.put("F5", "@5"); keyMap.put("F6", "@6"); keyMap.put("F7", "@7"); keyMap.put("F8", "@8");
+        keyMap.put("F9", "@9"); keyMap.put("F10", "@a"); keyMap.put("F11", "@b"); keyMap.put("F12", "@c");
+        keyMap.put("F13", "@d"); keyMap.put("F14", "@e"); keyMap.put("F15", "@f"); keyMap.put("F16", "@g");
+        keyMap.put("F17", "@h"); keyMap.put("F18", "@i"); keyMap.put("F19", "@j"); keyMap.put("F20", "@k");
+        keyMap.put("F21", "@l"); keyMap.put("F22", "@m"); keyMap.put("F23", "@n"); keyMap.put("F24", "@o");
+        keyMap.put("CLEAR", "@C");
+        keyMap.put("PA1", "@p"); keyMap.put("PA2", "@q"); keyMap.put("PA3", "@r");
+        keyMap.put("HOME", "@H"); keyMap.put("END", "@K");
+        keyMap.put("INSERT", "@I"); keyMap.put("DELETE", "@D");
+        keyMap.put("PAGEUP", "@U"); keyMap.put("PAGEDOWN", "@V");
+        keyMap.put("RESET", "@R"); keyMap.put("SYSREQ", "@S"); keyMap.put("ATTN", "@A");
+    }
+    
+    /**
+     * Convert row/column to linear position
+     */
+    private int rowColToPosition(int row, int col) {
+        return ((row - 1) * SCREEN_WIDTH) + col;
+    }
+    
+    /**
+     * Convert linear position to row/column
+     */
+    private int[] positionToRowCol(int position) {
+        int row = ((position - 1) / SCREEN_WIDTH) + 1;
+        int col = ((position - 1) % SCREEN_WIDTH) + 1;
+        return new int[]{row, col};
+    }
+    
+    // ==================== CONNECTION METHODS ====================
+    
+    /**
+     * Connect to a presentation space (session)
+     * 
+     * @param sessionId Session identifier (typically 'A', 'B', 'C', etc.)
+     * @return true if successful, false otherwise
+     */
+    public boolean connectPresentationSpace(String sessionId) {
+        try {
+            IntByReference functionNum = new IntByReference(1); // Connect Presentation Space
+            byte[] data = sessionId.getBytes();
+            IntByReference length = new IntByReference(1);
+            IntByReference returnCode = new IntByReference(0);
+            
+            WHLLAPI.INSTANCE.WinHLLAPI(functionNum, data, length, returnCode);
+            
+            if (returnCode.getValue() == 0) {
+                this.sessionId = sessionId;
+                this.connected = true;
+                System.out.println("Successfully connected to session " + sessionId);
+                return true;
+            } else {
+                System.out.println("Failed to connect to session " + sessionId + 
+                                 ". Return code: " + returnCode.getValue());
+                return false;
+            }
+        } catch (Exception e) {
+            System.out.println("Error connecting to session: " + e.getMessage());
+            return false;
+        }
+    }
+    
+    /**
+     * Disconnect from the current presentation space
+     * 
+     * @return true if successful, false otherwise
+     */
+    public boolean disconnectPresentationSpace() {
+        if (!connected) {
+            return true;
+        }
+        
+        try {
+            IntByReference functionNum = new IntByReference(2); // Disconnect Presentation Space
+            byte[] data = new byte[0];
+            IntByReference length = new IntByReference(0);
+            IntByReference returnCode = new IntByReference(0);
+            
+            WHLLAPI.INSTANCE.WinHLLAPI(functionNum, data, length, returnCode);
+            
+            if (returnCode.getValue() == 0) {
+                this.connected = false;
+                System.out.println("Successfully disconnected from presentation space");
+                return true;
+            } else {
+                System.out.println("Failed to disconnect. Return code: " + returnCode.getValue());
+                return false;
+            }
+        } catch (Exception e) {
+            System.out.println("Error disconnecting: " + e.getMessage());
+            return false;
+        }
+    }
+    
+    // ==================== TEXT READING METHODS (GET_TEXT) ====================
+    
+    /**
+     * Get text from the terminal screen (Main get_text method)
+     * 
+     * @param row Row number (1-24, 1-based) - optional
+     * @param startCol Starting column (1-80, 1-based) - optional
+     * @param endCol Ending column (1-80, 1-based) - optional
+     * @return Screen text or null if failed
+     */
+    public String getText(Integer row, Integer startCol, Integer endCol) {
+        if (!connected) {
+            System.out.println("Not connected to a session");
+            return null;
+        }
+        
+        try {
+            // Get the entire screen first
+            IntByReference functionNum = new IntByReference(8); // Copy Presentation Space
+            byte[] fullScreenBuffer = new byte[SCREEN_BUFFER_SIZE];
+            IntByReference length = new IntByReference(SCREEN_BUFFER_SIZE);
+            IntByReference returnCode = new IntByReference(0);
+            
+            WHLLAPI.INSTANCE.WinHLLAPI(functionNum, fullScreenBuffer, length, returnCode);
+            
+            if (returnCode.getValue() != 0) {
+                System.out.println("Failed to get screen text. Return code: " + returnCode.getValue());
+                return null;
+            }
+            
+            String fullScreenText = new String(fullScreenBuffer).replace('\0', ' ');
+            
+            // If row and column parameters are provided, extract specific portion
+            if (row != null && startCol != null) {
+                int calculatedStartPos = rowColToPosition(row, startCol);
+                int calculatedLength;
+                
+                if (endCol != null) {
+                    calculatedLength = endCol - startCol + 1;
+                } else {
+                    calculatedLength = SCREEN_WIDTH - startCol + 1;
+                }
+                
+                // Extract the requested portion
+                int startIndex = calculatedStartPos - 1; // Convert to 0-based
+                int endIndex = Math.min(startIndex + calculatedLength, fullScreenText.length());
+                
+                String extractedText = fullScreenText.substring(startIndex, endIndex);
+                return extractedText.trim(); // Remove trailing spaces
+            } else {
+                return fullScreenText;
+            }
+        } catch (Exception e) {
+            System.out.println("Error getting screen text: " + e.getMessage());
+            return null;
+        }
+    }
+    
+    /**
+     * Get text from the terminal screen using legacy position/length
+     */
+    public String getText(int startPos, int length) {
+        String fullScreen = getText(null, null, null);
+        if (fullScreen != null) {
+            int startIndex = startPos - 1;
+            int endIndex = Math.min(startIndex + length, fullScreen.length());
+            return fullScreen.substring(startIndex, endIndex);
+        }
+        return null;
+    }
+    
+    /**
+     * Get text from a specific row
+     */
+    public String getRowText(int row, Integer startCol, Integer endCol) {
+        if (startCol == null) startCol = 1;
+        if (endCol == null) endCol = SCREEN_WIDTH;
+        return getText(row, startCol, endCol);
+    }
+    
+    /**
+     * Get text from a specific row (entire row)
+     */
+    public String getRowText(int row) {
+        return getRowText(row, 1, SCREEN_WIDTH);
+    }
+    
+    /**
+     * Get text from a specific field position
+     */
+    public String getFieldText(int row, int col, int fieldLength) {
+        int endCol = col + fieldLength - 1;
+        return getText(row, col, endCol);
+    }
+    
+    // ==================== TEXT WRITING METHODS (SET_TEXT) ====================
+    
+    /**
+     * Set text on the terminal at specified position (Main set_text method)
+     * 
+     * @param text Text to send
+     * @param row Row number (1-24, 1-based) - optional
+     * @param col Column number (1-80, 1-based) - optional
+     * @return true if successful, false otherwise
+     */
+    public boolean setText(String text, Integer row, Integer col) {
+        if (!connected) {
+            System.out.println("Not connected to a session");
+            return false;
+        }
+        
+        int actualPosition;
+        if (row != null && col != null) {
+            actualPosition = rowColToPosition(row, col);
+            System.out.println("Setting text '" + text + "' at Row " + row + 
+                             ", Column " + col + " (Position " + actualPosition + ")");
+        } else {
+            actualPosition = 1; // Default position
+            System.out.println("Setting text '" + text + "' at position " + actualPosition);
+        }
+        
+        // Method 1: Try Copy String to Presentation Space (function 15)
+        if (setTextMethod1(text, actualPosition)) {
+            return true;
+        }
+        
+        // Method 2: Try Copy String to Field (function 9)
+        if (setTextMethod2(text, actualPosition)) {
+            return true;
+        }
+        
+        // Method 3: Fallback to cursor positioning + send key
+        return setTextMethod3(text, actualPosition, row, col);
+    }
+    
+    /**
+     * Set text using legacy position
+     */
+    public boolean setText(String text, int position) {
+        int[] rowCol = positionToRowCol(position);
+        return setText(text, rowCol[0], rowCol[1]);
+    }
+    
+    /**
+     * Method 1: Copy String to Presentation Space
+     */
+    private boolean setTextMethod1(String text, int position) {
+        try {
+            IntByReference functionNum = new IntByReference(15); // Copy String to Presentation Space
+            
+            // Convert position to row/col
+            int[] rowCol = positionToRowCol(position);
+            int row = rowCol[0];
+            int col = rowCol[1];
+            
+            // Create data buffer: row(2 bytes) + col(2 bytes) + text
+            ByteBuffer buffer = ByteBuffer.allocate(4 + text.length());
+            buffer.order(ByteOrder.LITTLE_ENDIAN);
+            buffer.putShort((short)row);
+            buffer.putShort((short)col);
+            buffer.put(text.getBytes());
+            
+            byte[] data = buffer.array();
+            IntByReference length = new IntByReference(text.length());
+            IntByReference returnCode = new IntByReference(0);
+            
+            WHLLAPI.INSTANCE.WinHLLAPI(functionNum, data, length, returnCode);
+            
+            if (returnCode.getValue() == 0) {
+                System.out.println("Successfully set text using method 1");
+                return true;
+            }
+        } catch (Exception e) {
+            // Method failed, try next one
+        }
+        return false;
+    }
+    
+    /**
+     * Method 2: Copy String to Field
+     */
+    private boolean setTextMethod2(String text, int position) {
+        try {
+            IntByReference functionNum = new IntByReference(9); // Copy String to Field
+            
+            // Format position as 4-digit string + text
+            String positionStr = String.format("%04d", position);
+            String fullText = positionStr + text;
+            
+            byte[] data = fullText.getBytes();
+            IntByReference length = new IntByReference(text.length());
+            IntByReference returnCode = new IntByReference(0);
+            
+            WHLLAPI.INSTANCE.WinHLLAPI(functionNum, data, length, returnCode);
+            
+            if (returnCode.getValue() == 0) {
+                System.out.println("Successfully set text using method 2");
+                return true;
+            }
+        } catch (Exception e) {
+            // Method failed, try next one
+        }
+        return false;
+    }
+    
+    /**
+     * Method 3: Set cursor position then send text
+     */
+    private boolean setTextMethod3(String text, int position, Integer row, Integer col) {
+        try {
+            // Set cursor position
+            setCursorPositionInternal(position);
+            
+            // Send the text
+            IntByReference functionNum = new IntByReference(3); // Send Key
+            byte[] data = text.getBytes();
+            IntByReference length = new IntByReference(text.length());
+            IntByReference returnCode = new IntByReference(0);
+            
+            WHLLAPI.INSTANCE.WinHLLAPI(functionNum, data, length, returnCode);
+            
+            if (returnCode.getValue() == 0) {
+                System.out.println("Successfully set text using method 3 (fallback)");
+                return true;
+            } else {
+                System.out.println("Failed to set text. Return code: " + returnCode.getValue());
+                return false;
+            }
+        } catch (Exception e) {
+            System.out.println("Method 3 failed: " + e.getMessage());
+            return false;
+        }
+    }
+    
+    /**
+     * Set text in a field with optional padding/truncation
+     */
+    public boolean setFieldText(String text, int row, int col, Integer fieldLength, Character fillChar) {
+        String formattedText = text;
+        
+        if (fieldLength != null) {
+            if (fillChar == null) fillChar = ' ';
+            
+            if (text.length() > fieldLength) {
+                formattedText = text.substring(0, fieldLength);
+            } else {
+                StringBuilder sb = new StringBuilder(text);
+                while (sb.length() < fieldLength) {
+                    sb.append(fillChar);
+                }
+                formattedText = sb.toString();
+            }
+        }
+        
+        return setText(formattedText, row, col);
+    }
+    
+    /**
+     * Set field text with default padding
+     */
+    public boolean setFieldText(String text, int row, int col, int fieldLength) {
+        return setFieldText(text, row, col, fieldLength, ' ');
+    }
+    
+    /**
+     * Clear a field by filling with spaces
+     */
+    public boolean clearField(int row, int col, int fieldLength) {
+        return setFieldText("", row, col, fieldLength, ' ');
+    }
+    
+    // ==================== KEY SENDING METHODS (SEND_KEYS) ====================
+    
+    /**
+     * Send special keys to the terminal (Main send_keys method)
+     * 
+     * @param keys Key or list of keys to send
+     * @return true if successful, false otherwise
+     */
+    public boolean sendKeys(String... keys) {
+        if (!connected) {
+            System.out.println("Not connected to a session");
+            return false;
+        }
+        
+        boolean success = true;
+        for (String key : keys) {
+            if (!sendSingleKey(key)) {
+                success = false;
+            }
+        }
+        
+        return success;
+    }
+    
+    /**
+     * Send keys from a list
+     */
+    public boolean sendKeys(List<String> keys) {
+        return sendKeys(keys.toArray(new String[0]));
+    }
+    
+    /**
+     * Send a single key to the terminal
+     */
+    private boolean sendSingleKey(String key) {
+        try {
+            String keyCode = keyMap.getOrDefault(key.toUpperCase(), key);
+            
+            IntByReference functionNum = new IntByReference(3); // Send Key
+            byte[] data = keyCode.getBytes();
+            IntByReference length = new IntByReference(keyCode.length());
+            IntByReference returnCode = new IntByReference(0);
+            
+            WHLLAPI.INSTANCE.WinHLLAPI(functionNum, data, length, returnCode);
+            
+            if (returnCode.getValue() == 0) {
+                System.out.println("Successfully sent key: " + key);
+                return true;
+            } else {
+                System.out.println("Failed to send key: " + key + ". Return code: " + returnCode.getValue());
+                return false;
+            }
+        } catch (Exception e) {
+            System.out.println("Error sending key: " + e.getMessage());
+            return false;
+        }
+    }
+    
+    /**
+     * Legacy method - send a single key
+     */
+    public boolean sendKey(String key) {
+        return sendKeys(key);
+    }
+    
+    // ==================== CURSOR POSITION METHODS ====================
+    
+    /**
+     * Set cursor position to specific row and column
+     */
+    public boolean setCursorPosition(int row, int col) {
+        if (!connected) {
+            System.out.println("Not connected to a session");
+            return false;
+        }
+        
+        try {
+            IntByReference functionNum = new IntByReference(4); // Set Cursor Position
+            
+            // Pack row and col as 2-byte integers (little-endian)
+            ByteBuffer buffer = ByteBuffer.allocate(4);
+            buffer.order(ByteOrder.LITTLE_ENDIAN);
+            buffer.putShort((short)row);
+            buffer.putShort((short)col);
+            
+            byte[] data = buffer.array();
+            IntByReference length = new IntByReference(4);
+            IntByReference returnCode = new IntByReference(0);
+            
+            WHLLAPI.INSTANCE.WinHLLAPI(functionNum, data, length, returnCode);
+            
+            if (returnCode.getValue() == 0) {
+                System.out.println("Successfully set cursor to Row " + row + ", Column " + col);
+                return true;
+            } else {
+                System.out.println("Failed to set cursor position. Return code: " + returnCode.getValue());
+                return false;
+            }
+        } catch (Exception e) {
+            System.out.println("Error setting cursor position: " + e.getMessage());
+            return false;
+        }
+    }
+    
+    /**
+     * Internal method to set cursor by position
+     */
+    private boolean setCursorPositionInternal(int position) {
+        int[] rowCol = positionToRowCol(position);
+        return setCursorPosition(rowCol[0], rowCol[1]);
+    }
+    
+    /**
+     * Get current cursor row position
+     */
+    public Integer getRowCursorPosition() {
+        Map<String, Integer> pos = getCursorPosition();
+        return pos != null ? pos.get("row") : null;
+    }
+    
+    /**
+     * Get current cursor column position
+     */
+    public Integer getColCursorPosition() {
+        Map<String, Integer> pos = getCursorPosition();
+        return pos != null ? pos.get("col") : null;
+    }
+    
+    /**
+     * Get current cursor position (both row and column)
+     */
+    public Map<String, Integer> getCursorPosition() {
+        if (!connected) {
+            System.out.println("Not connected to a session");
+            return null;
+        }
+        
+        try {
+            IntByReference functionNum = new IntByReference(5); // Query Cursor Location
+            byte[] data = new byte[4]; // Buffer for row/col data
+            IntByReference length = new IntByReference(4);
+            IntByReference returnCode = new IntByReference(0);
+            
+            WHLLAPI.INSTANCE.WinHLLAPI(functionNum, data, length, returnCode);
+            
+            if (returnCode.getValue() == 0) {
+                // Unpack the row/col data (little-endian, 2 unsigned shorts)
+                ByteBuffer buffer = ByteBuffer.wrap(data);
+                buffer.order(ByteOrder.LITTLE_ENDIAN);
+                int row = buffer.getShort() & 0xFFFF;
+                int col = buffer.getShort() & 0xFFFF;
+                
+                Map<String, Integer> result = new HashMap<>();
+                result.put("row", row);
+                result.put("col", col);
+                return result;
+            } else {
+                System.out.println("Failed to get cursor position. Return code: " + returnCode.getValue());
+                return null;
+            }
+        } catch (Exception e) {
+            System.out.println("Error getting cursor position: " + e.getMessage());
+            return null;
+        }
+    }
+    
+    // ==================== UTILITY METHODS ====================
+    
+    /**
+     * Wait for screen to change
+     */
+    public boolean waitForScreenChange(int timeoutSeconds) {
+        if (!connected) {
+            return false;
+        }
+        
+        long startTime = System.currentTimeMillis();
+        String initialScreen = getText(null, null, null);
+        
+        while ((System.currentTimeMillis() - startTime) < (timeoutSeconds * 1000)) {
+            try {
+                Thread.sleep(100);
+            } catch (InterruptedException e) {
+                Thread.currentThread().interrupt();
+                return false;
+            }
+            
+            String currentScreen = getText(null, null, null);
+            if (currentScreen != null && !currentScreen.equals(initialScreen)) {
+                return true;
+            }
+        }
+        
+        return false;
+    }
+    
+    /**
+     * Find text on the current screen
+     */
+    public Map<String, Object> findText(String searchText) {
+        String fullScreen = getText(null, null, null);
+        Map<String, Object> result = new HashMap<>();
+        
+        if (fullScreen == null) {
+            result.put("found", false);
+            result.put("row", null);
+            result.put("col", null);
+            result.put("position", null);
+            return result;
+        }
+        
+        int pos = fullScreen.indexOf(searchText);
+        if (pos == -1) {
+            result.put("found", false);
+            result.put("row", null);
+            result.put("col", null);
+            result.put("position", null);
+            return result;
+        }
+        
+        // Convert linear position to row/column
+        int[] rowCol = positionToRowCol(pos + 1);
+        
+        result.put("found", true);
+        result.put("row", rowCol[0]);
+        result.put("col", rowCol[1]);
+        result.put("position", pos + 1);
+        return result;
+    }
+    
+    /**
+     * Print screen with row/column grid for debugging
+     */
+    public void printScreenGrid(Integer highlightRow, int[] highlightCols) {
+        if (!connected) {
+            System.out.println("Not connected to a session");
+            return;
+        }
+        
+        System.out.println("\n" + "=".repeat(85));
+        System.out.print("    ");
+        for (int i = 1; i <= SCREEN_WIDTH; i++) {
+            System.out.print(i % 10);
+        }
+        System.out.println();
+        System.out.println("=".repeat(85));
+        
+        for (int row = 1; row <= SCREEN_HEIGHT; row++) {
+            String rowText = getRowText(row);
+            if (rowText == null) continue;
+            
+            // Pad or truncate to screen width
+            if (rowText.length() < SCREEN_WIDTH) {
+                rowText = String.format("%-" + SCREEN_WIDTH + "s", rowText);
+            } else if (rowText.length() > SCREEN_WIDTH) {
+                rowText = rowText.substring(0, SCREEN_WIDTH);
+            }
+            
+            String prefix = String.format("%2d: ", row);
+            
+            if (highlightRow != null && highlightRow == row && highlightCols != null && highlightCols.length >= 2) {
+                int startCol = highlightCols[0];
+                int endCol = highlightCols[1];
+                String before = rowText.substring(0, Math.max(0, startCol - 1));
+                String highlighted = rowText.substring(Math.max(0, startCol - 1), 
+                                                     Math.min(rowText.length(), endCol));
+                String after = rowText.substring(Math.min(rowText.length(), endCol));
+                System.out.println(prefix + before + "[" + highlighted + "]" + after);
+            } else {
+                System.out.println(prefix + rowText);
+            }
+        }
+        
+        System.out.println("=".repeat(85));
+    }
+    
+    /**
+     * Print screen grid without highlighting
+     */
+    public void printScreenGrid() {
+        printScreenGrid(null, null);
+    }
+    
+    /**
+     * Check if connected to a session
+     */
+    public boolean isConnected() {
+        return connected;
+    }
+    
+    /**
+     * Get current session information
+     */
+    public Map<String, Object> getSessionInfo() {
+        Map<String, Object> info = new HashMap<>();
+        info.put("connected", connected);
+        info.put("sessionId", sessionId);
+        info.put("screenWidth", SCREEN_WIDTH);
+        info.put("screenHeight", SCREEN_HEIGHT);
+        return info;
+    }
+    
+    // ==================== EXAMPLE USAGE ====================
+    
+    /**
+     * Comprehensive example demonstrating all functionality
+     */
+    public static void comprehensiveExample() {
+        System.out.println("=== QWS3270 Java Interface - Comprehensive Example ===\n");
+        
+        QWS3270Interface terminal = new QWS3270Interface();
+        
+        try {
+            // Connect to session A
+            System.out.println("1. Connecting to session...");
+            if (!terminal.connectPresentationSpace("A")) {
+                System.out.println("Failed to connect. Exiting.");
+                return;
+            }
+            
+            System.out.println("Session info: " + terminal.getSessionInfo() + "\n");
+            
+            // Wait for terminal to be ready
+            Thread.sleep(1000);
+            
+            // ===== CURSOR POSITION EXAMPLES =====
+            System.out.println("=== CURSOR POSITION EXAMPLES ===");
+            
+            // Get current cursor position
+            System.out.println("Getting current cursor position:");
+            Map<String, Integer> cursorPos = terminal.getCursorPosition();
+            if (cursorPos != null) {
+                System.out.println("Cursor at Row " + cursorPos.get("row") + 
+                                 ", Column " + cursorPos.get("col"));
+            }
+            
+            // Get individual row and column positions
+            Integer row = terminal.getRowCursorPosition();
+            Integer col = terminal.getColCursorPosition();
+            System.out.println("Individual methods: Row " + row + ", Column " + col);
+            
+            // Set cursor to specific position
+            System.out.println("Setting cursor to Row 15, Column 30:");
+            if (terminal.setCursorPosition(15, 30)) {
+                Map<String, Integer> newPos = terminal.getCursorPosition();
+                if (newPos != null) {
+                    System.out.println("Cursor now at Row " + newPos.get("row") + 
+                                     ", Column " + newPos.get("col"));
+                }
+            }
+            System.out.println();
+            
+            // ===== TEXT READING EXAMPLES =====
+            System.out.println("=== TEXT READING EXAMPLES ===");
+            
+            // Get text from specific row/column range
+            System.out.println("Getting text from Row 1, Columns 1-20:");
+            String text = terminal.getText(1, 1, 20);
+            System.out.println("Text: '" + text + "'\n");
+            
+            // Get entire row
+            System.out.println("Getting entire Row 24 (status line):");
+            String statusLine = terminal.getRowText(24);
+            System.out.println("Status: '" + statusLine + "'\n");
+            
+            // Get specific field
+            System.out.println("Getting field at Row 5, Col 10, Length 15:");
+            String field = terminal.getFieldText(5, 10, 15);
+            System.out.println("Field: '" + field + "'\n");
+            
+            // ===== TEXT WRITING EXAMPLES =====
+            System.out.println("=== TEXT WRITING EXAMPLES ===");
+            
+            // Set text at specific row/column
+            System.out.println("Setting text at Row 10, Column 20:");
+            terminal.setText("Hello World!", 10, 20);
+            
+            // Set field with padding
+            System.out.println("Setting field with padding at Row 12, Col 15:");
+            terminal.setFieldText("USER123", 12, 15, 20);
+            
+            // Clear a field
+            System.out.println("Clearing field at Row 14, Col 10:");
+            terminal.clearField(14, 10, 15);
+            System.out.println();
+            
+            // ===== KEY SENDING EXAMPLES =====
+            System.out.println("=== KEY SENDING EXAMPLES ===");
+            
+            // Send single key
+            System.out.println("Sending ENTER key:");
+            terminal.sendKeys("ENTER");
+            
+            // Send multiple keys
+            System.out.println("Sending F3 and TAB:");
+            terminal.sendKeys("F3", "TAB");
+            
+            // Send function key
+            System.out.println("Sending F1:");
+            terminal.sendKey("F1"); // Legacy method
+            System.out.println();
+            
+            // ===== UTILITY EXAMPLES =====
+            System.out.println("=== UTILITY EXAMPLES ===");
+            
+            // Find text
+            System.out.println("Finding 'READY' on screen:");
+            Map<String, Object> result = terminal.findText("READY");
+            if ((Boolean) result.get("found")) {
+                System.out.println("Found at Row " + result.get("row") + 
+                                 ", Column " + result.get("col"));
+            } else {
+                System.out.println("Text not found");
+            }
+            
+            // Wait for screen change
+            System.out.println("Waiting for screen change (5 seconds max):");
+            if (terminal.waitForScreenChange(5)) {
+                System.out.println("Screen changed!");
+            } else {
+                System.out.println("No screen change detected");
+            }
+            
+            // Display screen grid for debugging (first 10 rows)
+            System.out.println("\nScreen grid (first 10 rows):");
+            for (int i = 1; i <= 10; i++) {
+                String rowText = terminal.getRowText(i);
+                if (rowText != null) {
+                    String displayText = rowText.length() > 60 ? 
+                                       rowText.substring(0, 60) + "..." : rowText;
+                    System.out.printf("%2d: %s%n", i, displayText);
+                }
+            }
+            
+            System.out.println("\n=== COMPLETE WORKFLOW EXAMPLE ===");
+            
+            // Complete workflow: Login simulation
+            System.out.println("Simulating login workflow:");
+            
+            // 1. Check for login prompt
+            Map<String, Object> loginPrompt = terminal.findText("User ID");
+            if ((Boolean) loginPrompt.get("found")) {
+                Integer promptRow = (Integer) loginPrompt.get("row");
+                Integer promptCol = (Integer) loginPrompt.get("col");
+                System.out.println("Found login prompt at Row " + promptRow);
+                
+                // 2. Enter user ID
+                terminal.setText("TESTUSER", promptRow, promptCol + 10);
+                terminal.sendKeys("TAB");
+                
+                // 3. Enter password
+                terminal.setText("PASSWORD", promptRow + 1, promptCol + 10);
+                terminal.sendKeys("ENTER");
+                
+                // 4. Wait for response
+                if (terminal.waitForScreenChange(10)) {
+                    System.out.println("Login submitted, screen changed");
+                    
+                    // 5. Check result
+                    String resultText = terminal.getRowText(24); // Status line
+                    System.out.println("Result: " + resultText);
+                }
+            }
+            
+        } catch (Exception e) {
+            System.out.println("Error during example: " + e.getMessage());
+            e.printStackTrace();
+        } finally {
+            // Always disconnect
+            System.out.println("\nDisconnecting...");
+            terminal.disconnectPresentationSpace();
+            System.out.println("Example completed.");
+        }
+    }
+    
+    /**
+     * Quick test of basic functionality
+     */
+    public static void quickTest() {
+        QWS3270Interface terminal = new QWS3270Interface();
+        
+        if (terminal.connectPresentationSpace("A")) {
+            System.out.println("Connected successfully!");
+            
+            // Test text reading
+            String text = terminal.getText(1, 1, 10);
+            System.out.println("Screen text: '" + text + "'");
+            
+            // Test text writing
+            terminal.setText("TEST", 5, 5);
+            
+            // Test key sending
+            terminal.sendKeys("ENTER");
+            
+            terminal.disconnectPresentationSpace();
+            System.out.println("Quick test completed!");
+        } else {
+            System.out.println("Failed to connect");
+        }
+    }
+    
+    /**
+     * Main method for testing
+     */
+    public static void main(String[] args) {
+        // Add JNA library path if needed
+        // System.setProperty("jna.library.path", "path/to/whllapi/dll");
+        
+        try {
+            // Run comprehensive example
+            comprehensiveExample();
+            
+            // Uncomment for quick test instead
+            // quickTest();
+            
+        } catch (Exception e) {
+            System.out.println("Error: " + e.getMessage());
+            e.printStackTrace();
+        }
+    }
+}
