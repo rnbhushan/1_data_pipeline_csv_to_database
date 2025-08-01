@@ -1,0 +1,892 @@
+import ctypes
+from ctypes import wintypes, c_char_p, c_int, c_void_p, byref, create_string_buffer
+import struct
+import time
+
+class QWS3270Interface:
+    """
+    Complete Python interface for QWS3270 Terminal Emulator using Whllapi.dll
+    Supports row/column positioning for both reading and writing text
+    """
+    
+    def __init__(self, dll_path="whllapi.dll"):
+        """
+        Initialize the interface to QWS3270 terminal emulator
+        
+        Args:
+            dll_path (str): Path to the whllapi.dll file
+        """
+        try:
+            self.dll = ctypes.windll.LoadLibrary(dll_path)
+        except OSError as e:
+            raise Exception(f"Failed to load {dll_path}: {e}")
+        
+        # Define function signatures
+        self._setup_function_signatures()
+        
+        # Session variables
+        self.session_id = None
+        self.connected = False
+        self.screen_width = 80  # Standard 3270 screen width
+        self.screen_height = 24  # Standard 3270 screen height
+    
+    def _setup_function_signatures(self):
+        """Setup function signatures for HLLAPI calls"""
+        
+        # WinHLLAPI main function
+        self.dll.WinHLLAPI.argtypes = [
+            ctypes.POINTER(ctypes.c_int),    # Function number
+            ctypes.c_char_p,                 # Data string
+            ctypes.POINTER(ctypes.c_int),    # Length
+            ctypes.POINTER(ctypes.c_int)     # Return code
+        ]
+        self.dll.WinHLLAPI.restype = None
+    
+    def _position_to_row_col(self, position):
+        """Convert linear position to row/column"""
+        row = ((position - 1) // self.screen_width) + 1
+        col = ((position - 1) % self.screen_width) + 1
+        return row, col
+    
+    def _row_col_to_position(self, row, col):
+        """Convert row/column to linear position"""
+        return ((row - 1) * self.screen_width) + col
+
+    # ==================== CONNECTION METHODS ====================
+    
+    def connect_presentation_space(self, session_id='A'):
+        """
+        Connect to a presentation space (session)
+        
+        Args:
+            session_id (str): Session identifier (typically 'A', 'B', 'C', etc.)
+        
+        Returns:
+            bool: True if successful, False otherwise
+        """
+        function_num = ctypes.c_int(1)  # Connect Presentation Space
+        data = create_string_buffer(session_id.encode('ascii'), 1)
+        length = ctypes.c_int(1)
+        return_code = ctypes.c_int(0)
+        
+        self.dll.WinHLLAPI(byref(function_num), data, byref(length), byref(return_code))
+        
+        if return_code.value == 0:
+            self.session_id = session_id
+            self.connected = True
+            print(f"Successfully connected to session {session_id}")
+            return True
+        else:
+            print(f"Failed to connect to session {session_id}. Return code: {return_code.value}")
+            return False
+    
+    def disconnect_presentation_space(self):
+        """
+        Disconnect from the current presentation space
+        
+        Returns:
+            bool: True if successful, False otherwise
+        """
+        if not self.connected:
+            return True
+            
+        function_num = ctypes.c_int(2)  # Disconnect Presentation Space
+        data = create_string_buffer(b'', 0)
+        length = ctypes.c_int(0)
+        return_code = ctypes.c_int(0)
+        
+        self.dll.WinHLLAPI(byref(function_num), data, byref(length), byref(return_code))
+        
+        if return_code.value == 0:
+            self.connected = False
+            print("Successfully disconnected from presentation space")
+            return True
+        else:
+            print(f"Failed to disconnect. Return code: {return_code.value}")
+            return False
+
+    # ==================== TEXT READING METHODS (GET_TEXT) ====================
+    
+    def get_text(self, row=None, start_col=None, end_col=None, start_pos=1, length=1920):
+        """
+        Get text from the terminal screen (Main get_text method)
+        
+        Args:
+            row (int, optional): Row number (1-24, 1-based)
+            start_col (int, optional): Starting column (1-80, 1-based)
+            end_col (int, optional): Ending column (1-80, 1-based)
+            start_pos (int): Starting position for legacy mode (1-based)
+            length (int): Number of characters to read for legacy mode
+        
+        Returns:
+            str: Screen text or None if failed
+        """
+        if not self.connected:
+            print("Not connected to a session")
+            return None
+        
+        # Get the entire screen first
+        function_num = ctypes.c_int(8)  # Copy Presentation Space
+        full_screen_buffer = create_string_buffer(self.screen_width * self.screen_height)
+        full_length = ctypes.c_int(self.screen_width * self.screen_height)
+        return_code = ctypes.c_int(0)
+        
+        self.dll.WinHLLAPI(byref(function_num), full_screen_buffer, byref(full_length), byref(return_code))
+        
+        if return_code.value != 0:
+            print(f"Failed to get screen text. Return code: {return_code.value}")
+            return None
+        
+        full_screen_text = full_screen_buffer.value.decode('ascii', errors='ignore')
+        
+        # If row and column parameters are provided, extract specific portion
+        if row is not None and start_col is not None:
+            # Calculate position and length
+            calculated_start_pos = self._row_col_to_position(row, start_col)
+            
+            if end_col is not None:
+                calculated_length = end_col - start_col + 1
+            else:
+                calculated_length = self.screen_width - start_col + 1
+            
+            # Extract the requested portion
+            start_index = calculated_start_pos - 1  # Convert to 0-based
+            end_index = start_index + calculated_length
+            end_index = min(end_index, len(full_screen_text))
+            
+            extracted_text = full_screen_text[start_index:end_index]
+            return extracted_text.rstrip()  # Remove trailing spaces
+        else:
+            # Legacy mode
+            start_index = start_pos - 1
+            end_index = start_index + length
+            end_index = min(end_index, len(full_screen_text))
+            return full_screen_text[start_index:end_index]
+    
+    def get_row_text(self, row, start_col=1, end_col=None):
+        """
+        Get text from a specific row
+        
+        Args:
+            row (int): Row number (1-24, 1-based)
+            start_col (int): Starting column (default=1)
+            end_col (int): Ending column (default=end of row)
+        
+        Returns:
+            str: Text from the specified row
+        """
+        if end_col is None:
+            end_col = self.screen_width
+        return self.get_text(row=row, start_col=start_col, end_col=end_col)
+    
+    def get_field_text(self, row, col, field_length):
+        """
+        Get text from a specific field position
+        
+        Args:
+            row (int): Row number (1-based)
+            col (int): Column number (1-based)
+            field_length (int): Length of the field to read
+        
+        Returns:
+            str: Text from the field
+        """
+        end_col = col + field_length - 1
+        return self.get_text(row=row, start_col=col, end_col=end_col)
+    
+    def get_screen_text(self, start_pos=1, length=1920):
+        """
+        Legacy method - get screen text by position
+        
+        Args:
+            start_pos (int): Starting position (1-based)
+            length (int): Number of characters to read
+        
+        Returns:
+            str: Screen text
+        """
+        return self.get_text(start_pos=start_pos, length=length)
+
+    # ==================== TEXT WRITING METHODS (SET_TEXT) ====================
+    
+    def set_text(self, text, row=None, col=None, position=1):
+        """
+        Set text on the terminal at specified position (Main set_text method)
+        
+        Args:
+            text (str): Text to send
+            row (int, optional): Row number (1-24, 1-based)
+            col (int, optional): Column number (1-80, 1-based)  
+            position (int): Screen position for legacy mode (1-based)
+        
+        Returns:
+            bool: True if successful, False otherwise
+        """
+        if not self.connected:
+            print("Not connected to a session")
+            return False
+        
+        # Calculate position from row/col if provided
+        if row is not None and col is not None:
+            actual_position = self._row_col_to_position(row, col)
+            print(f"Setting text '{text}' at Row {row}, Column {col} (Position {actual_position})")
+        else:
+            actual_position = position
+            print(f"Setting text '{text}' at position {actual_position}")
+        
+        # Method 1: Try Copy String to Presentation Space (function 15)
+        if self._set_text_method1(text, actual_position):
+            return True
+        
+        # Method 2: Try Copy String to Field (function 9)  
+        if self._set_text_method2(text, actual_position):
+            return True
+        
+        # Method 3: Fallback to cursor positioning + send key
+        return self._set_text_method3(text, actual_position, row, col)
+    
+    def _set_text_method1(self, text, position):
+        """Method 1: Copy String to Presentation Space"""
+        try:
+            function_num = ctypes.c_int(15)  # Copy String to Presentation Space
+            
+            # Convert position to row/col
+            row, col = self._position_to_row_col(position)
+            
+            # Format: row(2 bytes) + col(2 bytes) + text
+            position_bytes = struct.pack('<HH', row, col)
+            text_bytes = text.encode('ascii')
+            full_data = position_bytes + text_bytes
+            
+            data = create_string_buffer(full_data, len(full_data))
+            length = ctypes.c_int(len(text))
+            return_code = ctypes.c_int(0)
+            
+            self.dll.WinHLLAPI(byref(function_num), data, byref(length), byref(return_code))
+            
+            if return_code.value == 0:
+                print(f"Successfully set text using method 1")
+                return True
+        except:
+            pass
+        return False
+    
+    def _set_text_method2(self, text, position):
+        """Method 2: Copy String to Field"""
+        try:
+            function_num = ctypes.c_int(9)  # Copy String to Field
+            
+            # Format position as 4-digit string + text
+            position_str = str(position).zfill(4)
+            full_text = position_str + text
+            
+            data = create_string_buffer(full_text.encode('ascii'), len(full_text))
+            length = ctypes.c_int(len(text))
+            return_code = ctypes.c_int(0)
+            
+            self.dll.WinHLLAPI(byref(function_num), data, byref(length), byref(return_code))
+            
+            if return_code.value == 0:
+                print(f"Successfully set text using method 2")
+                return True
+        except:
+            pass
+        return False
+    
+    def _set_text_method3(self, text, position, row=None, col=None):
+        """Method 3: Set cursor position then send text"""
+        try:
+            # Set cursor position
+            self._set_cursor_position(position)
+            
+            # Send the text
+            function_num = ctypes.c_int(3)  # Send Key
+            data = create_string_buffer(text.encode('ascii'), len(text))
+            length = ctypes.c_int(len(text))
+            return_code = ctypes.c_int(0)
+            
+            self.dll.WinHLLAPI(byref(function_num), data, byref(length), byref(return_code))
+            
+            if return_code.value == 0:
+                print(f"Successfully set text using method 3 (fallback)")
+                return True
+            else:
+                print(f"Failed to set text. Return code: {return_code.value}")
+                return False
+        except Exception as e:
+            print(f"Method 3 failed: {e}")
+            return False
+    
+    def _set_cursor_position(self, position):
+        """Set cursor position using function 4"""
+        try:
+            function_num = ctypes.c_int(4)  # Set Cursor Position
+            
+            # Convert position to row/col
+            row, col = self._position_to_row_col(position)
+            
+            # Pack row and col as 2-byte integers
+            position_data = struct.pack('<HH', row, col)
+            data = create_string_buffer(position_data, 4)
+            length = ctypes.c_int(4)
+            return_code = ctypes.c_int(0)
+            
+            self.dll.WinHLLAPI(byref(function_num), data, byref(length), byref(return_code))
+            
+            return return_code.value == 0
+        except:
+            return True  # Assume success if positioning fails
+    
+    def set_field_text(self, text, row, col, field_length=None, fill_char=' '):
+        """
+        Set text in a field with optional padding/truncation
+        
+        Args:
+            text (str): Text to set
+            row (int): Row number (1-based)
+            col (int): Column number (1-based)
+            field_length (int, optional): Length of field (for padding/truncation)
+            fill_char (str): Character to pad with
+        
+        Returns:
+            bool: True if successful
+        """
+        if field_length is not None:
+            if len(text) > field_length:
+                formatted_text = text[:field_length]
+            else:
+                formatted_text = text.ljust(field_length, fill_char)
+        else:
+            formatted_text = text
+        
+        return self.set_text(formatted_text, row=row, col=col)
+    
+    def clear_field(self, row, col, field_length):
+        """
+        Clear a field by filling with spaces
+        
+        Args:
+            row (int): Row number (1-based)  
+            col (int): Column number (1-based)
+            field_length (int): Length of field to clear
+        
+        Returns:
+            bool: True if successful
+        """
+        return self.set_field_text('', row, col, field_length, ' ')
+
+    # ==================== KEY SENDING METHODS (SEND_KEYS) ====================
+    
+    def send_keys(self, keys):
+        """
+        Send special keys to the terminal (Main send_keys method)
+        
+        Args:
+            keys (str or list): Key(s) to send (e.g., 'ENTER', ['F1', 'TAB'], etc.)
+        
+        Returns:
+            bool: True if successful, False otherwise
+        """
+        if not self.connected:
+            print("Not connected to a session")
+            return False
+        
+        # Handle single key or list of keys
+        if isinstance(keys, str):
+            key_list = [keys]
+        else:
+            key_list = keys
+        
+        success = True
+        for key in key_list:
+            if not self._send_single_key(key):
+                success = False
+        
+        return success
+    
+    def _send_single_key(self, key):
+        """Send a single key to the terminal"""
+        
+        # Key mappings for common keys
+        key_map = {
+            'ENTER': '@E',
+            'TAB': '@T',
+            'BACKTAB': '@B',
+            'F1': '@1', 'F2': '@2', 'F3': '@3', 'F4': '@4',
+            'F5': '@5', 'F6': '@6', 'F7': '@7', 'F8': '@8',
+            'F9': '@9', 'F10': '@a', 'F11': '@b', 'F12': '@c',
+            'F13': '@d', 'F14': '@e', 'F15': '@f', 'F16': '@g',
+            'F17': '@h', 'F18': '@i', 'F19': '@j', 'F20': '@k',
+            'F21': '@l', 'F22': '@m', 'F23': '@n', 'F24': '@o',
+            'CLEAR': '@C',
+            'PA1': '@p', 'PA2': '@q', 'PA3': '@r',
+            'HOME': '@H',
+            'END': '@K',
+            'INSERT': '@I',
+            'DELETE': '@D',
+            'PAGEUP': '@U',
+            'PAGEDOWN': '@V',
+            'RESET': '@R',
+            'SYSREQ': '@S',
+            'ATTN': '@A'
+        }
+        
+        key_code = key_map.get(key.upper(), key)
+        
+        function_num = ctypes.c_int(3)  # Send Key
+        data = create_string_buffer(key_code.encode('ascii'), len(key_code))
+        length = ctypes.c_int(len(key_code))
+        return_code = ctypes.c_int(0)
+        
+        self.dll.WinHLLAPI(byref(function_num), data, byref(length), byref(return_code))
+        
+        if return_code.value == 0:
+            print(f"Successfully sent key: {key}")
+            return True
+        else:
+            print(f"Failed to send key: {key}. Return code: {return_code.value}")
+            return False
+    
+    def send_key(self, key):
+        """
+        Legacy method - send a single key
+        
+        Args:
+            key (str): Key to send
+        
+        Returns:
+            bool: True if successful
+        """
+        return self.send_keys(key)
+
+    # ==================== CURSOR POSITION METHODS ====================
+    
+    def set_cursor_position(self, row, col):
+        """
+        Set cursor position to specific row and column
+        
+        Args:
+            row (int): Row number (1-24, 1-based)
+            col (int): Column number (1-80, 1-based)
+        
+        Returns:
+            bool: True if successful, False otherwise
+        """
+        if not self.connected:
+            print("Not connected to a session")
+            return False
+        
+        try:
+            function_num = ctypes.c_int(4)  # Set Cursor Position
+            
+            # Pack row and col as 2-byte integers (little-endian)
+            position_data = struct.pack('<HH', row, col)
+            data = create_string_buffer(position_data, 4)
+            length = ctypes.c_int(4)
+            return_code = ctypes.c_int(0)
+            
+            self.dll.WinHLLAPI(byref(function_num), data, byref(length), byref(return_code))
+            
+            if return_code.value == 0:
+                print(f"Successfully set cursor to Row {row}, Column {col}")
+                return True
+            else:
+                print(f"Failed to set cursor position. Return code: {return_code.value}")
+                return False
+        except Exception as e:
+            print(f"Error setting cursor position: {e}")
+            return False
+    
+    def get_row_cursor_position(self):
+        """
+        Get current cursor row position
+        
+        Returns:
+            int: Current cursor row (1-based) or None if failed
+        """
+        if not self.connected:
+            print("Not connected to a session")
+            return None
+        
+        try:
+            function_num = ctypes.c_int(5)  # Query Cursor Location
+            data = create_string_buffer(4)  # Buffer for row/col data
+            length = ctypes.c_int(4)
+            return_code = ctypes.c_int(0)
+            
+            self.dll.WinHLLAPI(byref(function_num), data, byref(length), byref(return_code))
+            
+            if return_code.value == 0:
+                # Unpack the row/col data (little-endian, 2 unsigned shorts)
+                row, col = struct.unpack('<HH', data.raw)
+                return row
+            else:
+                print(f"Failed to get cursor position. Return code: {return_code.value}")
+                return None
+        except Exception as e:
+            print(f"Error getting cursor row position: {e}")
+            return None
+    
+    def get_col_cursor_position(self):
+        """
+        Get current cursor column position
+        
+        Returns:
+            int: Current cursor column (1-based) or None if failed
+        """
+        if not self.connected:
+            print("Not connected to a session")
+            return None
+        
+        try:
+            function_num = ctypes.c_int(5)  # Query Cursor Location
+            data = create_string_buffer(4)  # Buffer for row/col data
+            length = ctypes.c_int(4)
+            return_code = ctypes.c_int(0)
+            
+            self.dll.WinHLLAPI(byref(function_num), data, byref(length), byref(return_code))
+            
+            if return_code.value == 0:
+                # Unpack the row/col data (little-endian, 2 unsigned shorts)
+                row, col = struct.unpack('<HH', data.raw)
+                return col
+            else:
+                print(f"Failed to get cursor position. Return code: {return_code.value}")
+                return None
+        except Exception as e:
+            print(f"Error getting cursor column position: {e}")
+            return None
+    
+    def get_cursor_position(self):
+        """
+        Get current cursor position (both row and column)
+        
+        Returns:
+            dict: {'row': int, 'col': int} or None if failed
+        """
+        if not self.connected:
+            print("Not connected to a session")
+            return None
+        
+        try:
+            function_num = ctypes.c_int(5)  # Query Cursor Location
+            data = create_string_buffer(4)  # Buffer for row/col data
+            length = ctypes.c_int(4)
+            return_code = ctypes.c_int(0)
+            
+            self.dll.WinHLLAPI(byref(function_num), data, byref(length), byref(return_code))
+            
+            if return_code.value == 0:
+                # Unpack the row/col data (little-endian, 2 unsigned shorts)
+                row, col = struct.unpack('<HH', data.raw)
+                return {'row': row, 'col': col}
+            else:
+                print(f"Failed to get cursor position. Return code: {return_code.value}")
+                return None
+        except Exception as e:
+            print(f"Error getting cursor position: {e}")
+            return None
+
+    # ==================== UTILITY METHODS ====================
+    
+    def wait_for_screen_change(self, timeout=10):
+        """
+        Wait for screen to change
+        
+        Args:
+            timeout (int): Maximum time to wait in seconds
+        
+        Returns:
+            bool: True if screen changed, False if timeout
+        """
+        if not self.connected:
+            return False
+        
+        start_time = time.time()
+        initial_screen = self.get_text()
+        
+        while time.time() - start_time < timeout:
+            time.sleep(0.1)
+            current_screen = self.get_text()
+            if current_screen != initial_screen:
+                return True
+        
+        return False
+    
+    def find_text(self, search_text):
+        """
+        Find text on the current screen
+        
+        Args:
+            search_text (str): Text to search for
+        
+        Returns:
+            dict: {'found': bool, 'row': int, 'col': int, 'position': int}
+        """
+        full_screen = self.get_text()
+        if not full_screen:
+            return {'found': False, 'row': None, 'col': None, 'position': None}
+        
+        pos = full_screen.find(search_text)
+        if pos == -1:
+            return {'found': False, 'row': None, 'col': None, 'position': None}
+        
+        # Convert linear position to row/column
+        row, col = self._position_to_row_col(pos + 1)
+        
+        return {
+            'found': True,
+            'row': row,
+            'col': col,
+            'position': pos + 1
+        }
+    
+    def print_screen_grid(self, highlight_row=None, highlight_cols=None):
+        """
+        Print screen with row/column grid for debugging
+        
+        Args:
+            highlight_row (int, optional): Row to highlight
+            highlight_cols (tuple, optional): (start_col, end_col) to highlight
+        """
+        if not self.connected:
+            print("Not connected to a session")
+            return
+        
+        print("\n" + "="*85)
+        print("    " + "".join([f"{i%10}" for i in range(1, self.screen_width + 1)]))
+        print("="*85)
+        
+        for row in range(1, self.screen_height + 1):
+            row_text = self.get_row_text(row)
+            if row_text is None:
+                continue
+                
+            # Pad or truncate to screen width
+            row_text = row_text.ljust(self.screen_width)[:self.screen_width]
+            
+            prefix = f"{row:2d}: "
+            
+            if highlight_row == row and highlight_cols:
+                start_col, end_col = highlight_cols
+                before = row_text[:start_col-1]
+                highlighted = row_text[start_col-1:end_col]
+                after = row_text[end_col:]
+                print(f"{prefix}{before}[{highlighted}]{after}")
+            else:
+                print(f"{prefix}{row_text}")
+        
+        print("="*85)
+    
+    def is_connected(self):
+        """Check if connected to a session"""
+        return self.connected
+    
+    def get_session_info(self):
+        """Get current session information"""
+        return {
+            'connected': self.connected,
+            'session_id': self.session_id,
+            'screen_width': self.screen_width,
+            'screen_height': self.screen_height
+        }
+
+
+# ==================== EXAMPLE USAGE ====================
+
+def comprehensive_example():
+    """
+    Comprehensive example demonstrating all functionality
+    """
+    print("=== QWS3270 Terminal Interface - Comprehensive Example ===\n")
+    
+    # Initialize the interface
+    terminal = QWS3270Interface()
+    
+    try:
+        # Connect to session A
+        print("1. Connecting to session...")
+        if not terminal.connect_presentation_space('A'):
+            print("Failed to connect. Exiting.")
+            return
+        
+        print(f"Session info: {terminal.get_session_info()}\n")
+        
+        # Wait for terminal to be ready
+        time.sleep(1)
+        
+        # ===== CURSOR POSITION EXAMPLES =====
+        print("=== CURSOR POSITION EXAMPLES ===")
+        
+        # Get current cursor position
+        print("Getting current cursor position:")
+        cursor_pos = terminal.get_cursor_position()
+        if cursor_pos:
+            print(f"Cursor at Row {cursor_pos['row']}, Column {cursor_pos['col']}")
+        
+        # Get individual row and column positions
+        row = terminal.get_row_cursor_position()
+        col = terminal.get_col_cursor_position()
+        print(f"Individual methods: Row {row}, Column {col}")
+        
+        # Set cursor to specific position
+        print("Setting cursor to Row 15, Column 30:")
+        if terminal.set_cursor_position(15, 30):
+            # Verify the cursor moved
+            new_pos = terminal.get_cursor_position()
+            if new_pos:
+                print(f"Cursor now at Row {new_pos['row']}, Column {new_pos['col']}")
+        
+        # Move cursor and enter text
+        print("Moving cursor to Row 8, Column 20 and entering text:")
+        terminal.set_cursor_position(8, 20)
+        terminal.set_text("Cursor positioned text", row=8, col=20)
+        print()
+        
+        # ===== TEXT READING EXAMPLES =====
+        print("=== TEXT READING EXAMPLES ===")
+        
+        # Get text from specific row/column range
+        print("Getting text from Row 1, Columns 1-20:")
+        text = terminal.get_text(row=1, start_col=1, end_col=20)
+        print(f"Text: '{text}'\n")
+        
+        # Get entire row
+        print("Getting entire Row 24 (status line):")
+        status_line = terminal.get_row_text(24)
+        print(f"Status: '{status_line}'\n")
+        
+        # Get specific field
+        print("Getting field at Row 5, Col 10, Length 15:")
+        field = terminal.get_field_text(5, 10, 15)
+        print(f"Field: '{field}'\n")
+        
+        # Find text on screen
+        print("Finding 'READY' on screen:")
+        result = terminal.find_text("READY")
+        if result['found']:
+            print(f"Found at Row {result['row']}, Column {result['col']}")
+        else:
+            print("Text not found")
+        print()
+        
+        # ===== TEXT WRITING EXAMPLES =====
+        print("=== TEXT WRITING EXAMPLES ===")
+        
+        # Set text at specific row/column
+        print("Setting text at Row 10, Column 20:")
+        terminal.set_text("Hello World!", row=10, col=20)
+        
+        # Set field with padding
+        print("Setting field with padding at Row 12, Col 15:")
+        terminal.set_field_text("USER123", row=12, col=15, field_length=20)
+        
+        # Clear a field
+        print("Clearing field at Row 14, Col 10:")
+        terminal.clear_field(row=14, col=10, field_length=15)
+        
+        # Set text using legacy position
+        print("Setting text at position 500:")
+        terminal.set_text("Legacy Position", position=500)
+        print()
+        
+        # ===== KEY SENDING EXAMPLES =====
+        print("=== KEY SENDING EXAMPLES ===")
+        
+        # Send single key
+        print("Sending ENTER key:")
+        terminal.send_keys("ENTER")
+        
+        # Send multiple keys
+        print("Sending F3 and TAB:")
+        terminal.send_keys(["F3", "TAB"])
+        
+        # Send function key
+        print("Sending F1:")
+        terminal.send_key("F1")  # Legacy method
+        print()
+        
+        # ===== UTILITY EXAMPLES =====
+        print("=== UTILITY EXAMPLES ===")
+        
+        # Wait for screen change
+        print("Waiting for screen change (5 seconds max):")
+        if terminal.wait_for_screen_change(5):
+            print("Screen changed!")
+        else:
+            print("No screen change detected")
+        
+        # Display screen grid for debugging
+        print("\nScreen grid (first 10 rows):")
+        # Create a mini version for demo
+        for row in range(1, 11):
+            row_text = terminal.get_row_text(row)
+            if row_text:
+                print(f"{row:2d}: {row_text[:60]}...")
+        
+        print("\n=== COMPLETE WORKFLOW EXAMPLE ===")
+        
+        # Complete workflow: Login simulation
+        print("Simulating login workflow:")
+        
+        # 1. Check for login prompt
+        login_prompt = terminal.find_text("User ID")
+        if login_prompt['found']:
+            print(f"Found login prompt at Row {login_prompt['row']}")
+            
+            # 2. Enter user ID
+            terminal.set_text("TESTUSER", row=login_prompt['row'], col=login_prompt['col'] + 10)
+            terminal.send_keys("TAB")
+            
+            # 3. Enter password  
+            terminal.set_text("PASSWORD", row=login_prompt['row'] + 1, col=login_prompt['col'] + 10)
+            terminal.send_keys("ENTER")
+            
+            # 4. Wait for response
+            if terminal.wait_for_screen_change(10):
+                print("Login submitted, screen changed")
+                
+                # 5. Check result
+                result_text = terminal.get_row_text(24)  # Status line
+                print(f"Result: {result_text}")
+        
+    except Exception as e:
+        print(f"Error during example: {e}")
+    
+    finally:
+        # Always disconnect
+        print("\nDisconnecting...")
+        terminal.disconnect_presentation_space()
+        print("Example completed.")
+
+
+def quick_test():
+    """Quick test of basic functionality"""
+    terminal = QWS3270Interface()
+    
+    if terminal.connect_presentation_space('A'):
+        # Quick tests
+        print("Connected successfully!")
+        
+        # Test text reading
+        text = terminal.get_text(row=1, start_col=1, end_col=10)
+        print(f"Screen text: '{text}'")
+        
+        # Test text writing
+        terminal.set_text("TEST", row=5, col=5)
+        
+        # Test key sending
+        terminal.send_keys("ENTER")
+        
+        terminal.disconnect_presentation_space()
+        print("Quick test completed!")
+    else:
+        print("Failed to connect")
+
+
+if __name__ == "__main__":
+    # Run comprehensive example
+    comprehensive_example()
+    
+    # Uncomment for quick test instead
+    # quick_test()
