@@ -1,0 +1,523 @@
+import ctypes
+from ctypes import wintypes, c_char_p, c_int, c_void_p, byref, create_string_buffer
+import time
+
+class QWS3270Interface:
+    """
+    Python interface for QWS3270 Terminal Emulator using Whllapi.dll
+    """
+    
+    def __init__(self, dll_path="whllapi.dll"):
+        """
+        Initialize the interface to QWS3270 terminal emulator
+        
+        Args:
+            dll_path (str): Path to the whllapi.dll file
+        """
+        try:
+            self.dll = ctypes.windll.LoadLibrary(dll_path)
+        except OSError as e:
+            raise Exception(f"Failed to load {dll_path}: {e}")
+        
+        # Define function signatures
+        self._setup_function_signatures()
+        
+        # Session variables
+        self.session_id = None
+        self.connected = False
+    
+    def _setup_function_signatures(self):
+        """Setup function signatures for HLLAPI calls"""
+        
+        # WinHLLAPI main function
+        self.dll.WinHLLAPI.argtypes = [
+            ctypes.POINTER(ctypes.c_int),    # Function number
+            ctypes.c_char_p,                 # Data string
+            ctypes.POINTER(ctypes.c_int),    # Length
+            ctypes.POINTER(ctypes.c_int)     # Return code
+        ]
+        self.dll.WinHLLAPI.restype = None
+    
+    def connect_presentation_space(self, session_id='A'):
+        """
+        Connect to a presentation space (session)
+        
+        Args:
+            session_id (str): Session identifier (typically 'A', 'B', 'C', etc.)
+        
+        Returns:
+            bool: True if successful, False otherwise
+        """
+        function_num = ctypes.c_int(1)  # Connect Presentation Space
+        data = create_string_buffer(session_id.encode('ascii'), 1)
+        length = ctypes.c_int(1)
+        return_code = ctypes.c_int(0)
+        
+        self.dll.WinHLLAPI(byref(function_num), data, byref(length), byref(return_code))
+        
+        if return_code.value == 0:
+            self.session_id = session_id
+            self.connected = True
+            print(f"Successfully connected to session {session_id}")
+            return True
+        else:
+            print(f"Failed to connect to session {session_id}. Return code: {return_code.value}")
+            return False
+    
+    def disconnect_presentation_space(self):
+        """
+        Disconnect from the current presentation space
+        
+        Returns:
+            bool: True if successful, False otherwise
+        """
+        if not self.connected:
+            return True
+            
+        function_num = ctypes.c_int(2)  # Disconnect Presentation Space
+        data = create_string_buffer(b'', 0)
+        length = ctypes.c_int(0)
+        return_code = ctypes.c_int(0)
+        
+        self.dll.WinHLLAPI(byref(function_num), data, byref(length), byref(return_code))
+        
+        if return_code.value == 0:
+            self.connected = False
+            print("Successfully disconnected from presentation space")
+            return True
+        else:
+            print(f"Failed to disconnect. Return code: {return_code.value}")
+            return False
+    
+    def send_string(self, text, row=None, col=None, position=1):
+        """
+        Send a string to the terminal at specified position
+        
+        Args:
+            text (str): Text to send
+            row (int, optional): Row number (1-24, 1-based)
+            col (int, optional): Column number (1-80, 1-based)  
+            position (int): Screen position for legacy mode (1-based)
+        
+        Returns:
+            bool: True if successful, False otherwise
+        """
+        if not self.connected:
+            print("Not connected to a session")
+            return False
+        
+        # Calculate position from row/col if provided
+        if row is not None and col is not None:
+            # Standard 3270 screen is typically 24 rows x 80 columns
+            screen_width = 80
+            calculated_position = ((row - 1) * screen_width) + col
+            actual_position = calculated_position
+            print(f"Sending '{text}' to Row {row}, Column {col} (Position {actual_position})")
+        else:
+            # Use legacy position parameter
+            actual_position = position
+            print(f"Sending '{text}' to position {actual_position}")
+        
+        # Set cursor position first
+        if not self.set_cursor_position(actual_position):
+            print(f"Failed to set cursor position to {actual_position}")
+            return False
+        
+        function_num = ctypes.c_int(3)  # Send Key
+        data = create_string_buffer(text.encode('ascii'), len(text))
+        length = ctypes.c_int(len(text))
+        return_code = ctypes.c_int(0)
+        
+        self.dll.WinHLLAPI(byref(function_num), data, byref(length), byref(return_code))
+        
+        if return_code.value == 0:
+            if row is not None and col is not None:
+                print(f"Successfully sent '{text}' to Row {row}, Column {col}")
+            else:
+                print(f"Successfully sent '{text}' to position {actual_position}")
+            return True
+        else:
+            print(f"Failed to send string. Return code: {return_code.value}")
+            return False
+    
+    def send_key(self, key):
+        """
+        Send a special key to the terminal
+        
+        Args:
+            key (str): Key to send (e.g., 'ENTER', 'TAB', 'F1', etc.)
+        
+        Returns:
+            bool: True if successful, False otherwise
+        """
+        if not self.connected:
+            print("Not connected to a session")
+            return False
+        
+        # Key mappings for common keys
+        key_map = {
+            'ENTER': '@E',
+            'TAB': '@T',
+            'F1': '@1',
+            'F2': '@2',
+            'F3': '@3',
+            'F4': '@4',
+            'F5': '@5',
+            'F6': '@6',
+            'F7': '@7',
+            'F8': '@8',
+            'F9': '@9',
+            'F10': '@a',
+            'F11': '@b',
+            'F12': '@c',
+            'CLEAR': '@C',
+            'PA1': '@p',
+            'PA2': '@q',
+            'PA3': '@r'
+        }
+        
+        key_code = key_map.get(key.upper(), key)
+        
+        function_num = ctypes.c_int(3)  # Send Key
+        data = create_string_buffer(key_code.encode('ascii'), len(key_code))
+        length = ctypes.c_int(len(key_code))
+        return_code = ctypes.c_int(0)
+        
+        self.dll.WinHLLAPI(byref(function_num), data, byref(length), byref(return_code))
+        
+        if return_code.value == 0:
+            print(f"Successfully sent key: {key}")
+            return True
+        else:
+            print(f"Failed to send key. Return code: {return_code.value}")
+            return False
+    
+    def get_screen_text(self, row=None, start_col=None, end_col=None, start_pos=1, length=1920):
+        """
+        Get text from the terminal screen
+        
+        Args:
+            row (int, optional): Row number (1-24 for standard 3270, 1-based)
+            start_col (int, optional): Starting column (1-80 for standard 3270, 1-based)
+            end_col (int, optional): Ending column (1-80 for standard 3270, 1-based)
+            start_pos (int): Starting position for legacy mode (1-based)
+            length (int): Number of characters to read for legacy mode
+        
+        Returns:
+            str: Screen text or None if failed
+        """
+        if not self.connected:
+            print("Not connected to a session")
+            return None
+        
+        # If row and column parameters are provided, calculate position and length
+        if row is not None and start_col is not None:
+            # Standard 3270 screen is typically 24 rows x 80 columns
+            screen_width = 80
+            
+            # Convert row/column to linear position (1-based)
+            calculated_start_pos = ((row - 1) * screen_width) + start_col
+            
+            # Calculate length based on end column or default to end of row
+            if end_col is not None:
+                calculated_length = end_col - start_col + 1
+            else:
+                calculated_length = screen_width - start_col + 1
+            
+            # Use calculated values
+            actual_start_pos = calculated_start_pos
+            actual_length = calculated_length
+            
+            print(f"Getting text from Row {row}, Columns {start_col}-{end_col or screen_width}")
+            print(f"Calculated position: {actual_start_pos}, Length: {actual_length}")
+        else:
+            # Use legacy parameters
+            actual_start_pos = start_pos
+            actual_length = length
+        
+        # Get the entire screen first
+        function_num = ctypes.c_int(8)  # Copy Presentation Space
+        full_screen_buffer = create_string_buffer(1920)  # Standard 3270 screen size
+        full_length = ctypes.c_int(1920)
+        return_code = ctypes.c_int(0)
+        
+        self.dll.WinHLLAPI(byref(function_num), full_screen_buffer, byref(full_length), byref(return_code))
+        
+        if return_code.value == 0:
+            full_screen_text = full_screen_buffer.value.decode('ascii', errors='ignore')
+            
+            # Extract the requested portion
+            if row is not None and start_col is not None:
+                # Extract specific row/column range
+                start_index = actual_start_pos - 1  # Convert to 0-based for string indexing
+                end_index = start_index + actual_length
+                
+                # Ensure we don't go beyond screen bounds
+                end_index = min(end_index, len(full_screen_text))
+                
+                extracted_text = full_screen_text[start_index:end_index]
+                return extracted_text.rstrip()  # Remove trailing spaces
+            else:
+                # Legacy mode - return specified portion
+                start_index = actual_start_pos - 1
+                end_index = start_index + actual_length
+                end_index = min(end_index, len(full_screen_text))
+                return full_screen_text[start_index:end_index]
+        else:
+            print(f"Failed to get screen text. Return code: {return_code.value}")
+            return None
+    
+    def send_string_to_field(self, text, row, col):
+        """
+        Convenience method to send string to a specific row/column position
+        
+        Args:
+            text (str): Text to send
+            row (int): Row number (1-24, 1-based)
+            col (int): Column number (1-80, 1-based)
+        
+        Returns:
+            bool: True if successful, False otherwise
+        """
+        return self.send_string(text, row=row, col=col)
+    
+    def fill_field(self, text, row, col, field_length, fill_char=' '):
+        """
+        Fill a field with text, padding or truncating as needed
+        
+        Args:
+            text (str): Text to send
+            row (int): Row number (1-based)
+            col (int): Column number (1-based)
+            field_length (int): Length of the field
+            fill_char (str): Character to pad with (default: space)
+        
+        Returns:
+            bool: True if successful, False otherwise
+        """
+        # Truncate or pad the text to fit the field length
+        if len(text) > field_length:
+            formatted_text = text[:field_length]
+        else:
+            formatted_text = text.ljust(field_length, fill_char)
+        
+        return self.send_string(formatted_text, row=row, col=col)
+    
+    def clear_field(self, row, col, field_length):
+        """
+        Clear a field by filling it with spaces
+        
+        Args:
+            row (int): Row number (1-based)
+            col (int): Column number (1-based)
+            field_length (int): Length of the field to clear
+        
+        Returns:
+            bool: True if successful, False otherwise
+        """
+        return self.fill_field('', row, col, field_length, ' ')
+        """
+        Set cursor position on the screen
+        
+        Args:
+            position (int): Screen position (1-based)
+        
+        Returns:
+            bool: True if successful, False otherwise
+        """
+        if not self.connected:
+            print("Not connected to a session")
+            return False
+        
+        function_num = ctypes.c_int(0)  # Set Session Parameters
+        # Convert position to string format expected by HLLAPI
+        pos_str = str(position)
+        data = create_string_buffer(pos_str.encode('ascii'), len(pos_str))
+        length = ctypes.c_int(len(pos_str))
+        return_code = ctypes.c_int(0)
+        
+        self.dll.WinHLLAPI(byref(function_num), data, byref(length), byref(return_code))
+        
+        return return_code.value == 0
+    
+    def wait_for_screen_change(self, timeout=10):
+        """
+        Wait for screen to change (useful after sending commands)
+        
+        Args:
+            timeout (int): Maximum time to wait in seconds
+        
+        Returns:
+            bool: True if screen changed, False if timeout
+        """
+        if not self.connected:
+            return False
+        
+        start_time = time.time()
+        initial_screen = self.get_screen_text()
+        
+        while time.time() - start_time < timeout:
+            time.sleep(0.1)
+            current_screen = self.get_screen_text()
+            if current_screen != initial_screen:
+                return True
+        
+        return False
+    
+    def get_row_text(self, row, start_col=1, end_col=80):
+        """
+        Convenience method to get text from a specific row
+        
+        Args:
+            row (int): Row number (1-24, 1-based)
+            start_col (int): Starting column (1-80, 1-based, default=1)
+            end_col (int): Ending column (1-80, 1-based, default=80)
+        
+        Returns:
+            str: Text from the specified row/column range
+        """
+        return self.get_screen_text(row=row, start_col=start_col, end_col=end_col)
+    
+    def get_field_text(self, row, col, field_length):
+        """
+        Get text from a specific field position
+        
+        Args:
+            row (int): Row number (1-based)
+            col (int): Column number (1-based)
+            field_length (int): Length of the field to read
+        
+        Returns:
+            str: Text from the field
+        """
+        end_col = col + field_length - 1
+        return self.get_screen_text(row=row, start_col=col, end_col=end_col)
+    
+    def print_screen_grid(self, highlight_row=None, highlight_cols=None):
+        """
+        Print the screen with row/column grid for debugging
+        
+        Args:
+            highlight_row (int, optional): Row to highlight
+            highlight_cols (tuple, optional): (start_col, end_col) to highlight
+        """
+        if not self.connected:
+            print("Not connected to a session")
+            return
+        
+        print("\n" + "="*85)
+        print("    " + "".join([f"{i%10}" for i in range(1, 81)]))  # Column numbers
+        print("="*85)
+        
+        for row in range(1, 25):  # Standard 3270 has 24 rows
+            row_text = self.get_row_text(row)
+            if row_text is None:
+                continue
+                
+            # Pad or truncate to exactly 80 characters
+            row_text = row_text.ljust(80)[:80]
+            
+            prefix = f"{row:2d}: "
+            
+            if highlight_row == row and highlight_cols:
+                start_col, end_col = highlight_cols
+                before = row_text[:start_col-1]
+                highlighted = row_text[start_col-1:end_col]
+                after = row_text[end_col:]
+                print(f"{prefix}{before}[{highlighted}]{after}")
+            else:
+                print(f"{prefix}{row_text}")
+        
+        print("="*85)
+
+
+    def find_text_on_screen(self, search_text):
+        """
+        Find text on the current screen
+        
+        Args:
+            search_text (str): Text to search for
+        
+        Returns:
+            dict: {'found': bool, 'row': int, 'col': int, 'position': int} or None if not found
+        """
+        full_screen = self.get_screen_text()
+        if not full_screen:
+            return None
+        
+        pos = full_screen.find(search_text)
+        if pos == -1:
+            return {'found': False, 'row': None, 'col': None, 'position': None}
+        
+        # Convert linear position to row/column (assuming 80 columns per row)
+        screen_width = 80
+        row = (pos // screen_width) + 1
+        col = (pos % screen_width) + 1
+        
+        return {
+            'found': True,
+            'row': row,
+            'col': col,
+            'position': pos + 1  # Convert to 1-based position
+        }
+
+
+# Example usage and utility functions
+def example_usage():
+    """
+    Example of how to use the QWS3270Interface with enhanced screen reading
+    """
+    # Initialize the interface
+    terminal = QWS3270Interface()
+    
+    try:
+        # Connect to session A
+        if terminal.connect_presentation_space('A'):
+            
+            # Wait a moment for connection to establish
+            time.sleep(1)
+            
+            # Example 1: Get text from specific row and column range
+            print("=== Example 1: Get text from Row 5, Columns 10-30 ===")
+            text = terminal.get_screen_text(row=5, start_col=10, end_col=30)
+            if text:
+                print(f"Text: '{text}'")
+            
+            # Example 2: Get entire row
+            print("\n=== Example 2: Get entire Row 3 ===")
+            row_text = terminal.get_row_text(3)
+            if row_text:
+                print(f"Row 3: '{row_text}'")
+            
+            # Example 3: Get specific field (e.g., 10 characters starting at row 2, col 15)
+            print("\n=== Example 3: Get field at Row 2, Col 15, Length 10 ===")
+            field_text = terminal.get_field_text(2, 15, 10)
+            if field_text:
+                print(f"Field: '{field_text}'")
+            
+            # Example 4: Find text and get its location
+            print("\n=== Example 4: Find text location ===")
+            result = terminal.find_text_on_screen("READY")
+            if result and result['found']:
+                print(f"Found 'READY' at Row {result['row']}, Column {result['col']}")
+            
+            # Example 5: Print screen with grid (helpful for debugging)
+            print("\n=== Example 5: Screen grid view ===")
+            terminal.print_screen_grid(highlight_row=5, highlight_cols=(10, 30))
+            
+            # Example 6: Legacy usage (still works)
+            print("\n=== Example 6: Legacy usage ===")
+            legacy_text = terminal.get_screen_text(start_pos=1, length=100)
+            if legacy_text:
+                print(f"First 100 chars: '{legacy_text[:50]}...'")
+            
+    except Exception as e:
+        print(f"Error: {e}")
+    
+    finally:
+        # Always disconnect when done
+        terminal.disconnect_presentation_space()
+
+
+if __name__ == "__main__":
+    example_usage()
