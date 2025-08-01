@@ -1,0 +1,317 @@
+import ctypes
+from ctypes import wintypes, c_char_p, c_int, c_void_p, byref, create_string_buffer
+import time
+
+class QWS3270Interface:
+    """
+    Python interface for QWS3270 Terminal Emulator using Whllapi.dll
+    """
+    
+    def __init__(self, dll_path="whllapi.dll"):
+        """
+        Initialize the interface to QWS3270 terminal emulator
+        
+        Args:
+            dll_path (str): Path to the whllapi.dll file
+        """
+        try:
+            self.dll = ctypes.windll.LoadLibrary(dll_path)
+        except OSError as e:
+            raise Exception(f"Failed to load {dll_path}: {e}")
+        
+        # Define function signatures
+        self._setup_function_signatures()
+        
+        # Session variables
+        self.session_id = None
+        self.connected = False
+    
+    def _setup_function_signatures(self):
+        """Setup function signatures for HLLAPI calls"""
+        
+        # WinHLLAPI main function
+        self.dll.WinHLLAPI.argtypes = [
+            ctypes.POINTER(ctypes.c_int),    # Function number
+            ctypes.c_char_p,                 # Data string
+            ctypes.POINTER(ctypes.c_int),    # Length
+            ctypes.POINTER(ctypes.c_int)     # Return code
+        ]
+        self.dll.WinHLLAPI.restype = None
+    
+    def connect_presentation_space(self, session_id='A'):
+        """
+        Connect to a presentation space (session)
+        
+        Args:
+            session_id (str): Session identifier (typically 'A', 'B', 'C', etc.)
+        
+        Returns:
+            bool: True if successful, False otherwise
+        """
+        function_num = ctypes.c_int(1)  # Connect Presentation Space
+        data = create_string_buffer(session_id.encode('ascii'), 1)
+        length = ctypes.c_int(1)
+        return_code = ctypes.c_int(0)
+        
+        self.dll.WinHLLAPI(byref(function_num), data, byref(length), byref(return_code))
+        
+        if return_code.value == 0:
+            self.session_id = session_id
+            self.connected = True
+            print(f"Successfully connected to session {session_id}")
+            return True
+        else:
+            print(f"Failed to connect to session {session_id}. Return code: {return_code.value}")
+            return False
+    
+    def disconnect_presentation_space(self):
+        """
+        Disconnect from the current presentation space
+        
+        Returns:
+            bool: True if successful, False otherwise
+        """
+        if not self.connected:
+            return True
+            
+        function_num = ctypes.c_int(2)  # Disconnect Presentation Space
+        data = create_string_buffer(b'', 0)
+        length = ctypes.c_int(0)
+        return_code = ctypes.c_int(0)
+        
+        self.dll.WinHLLAPI(byref(function_num), data, byref(length), byref(return_code))
+        
+        if return_code.value == 0:
+            self.connected = False
+            print("Successfully disconnected from presentation space")
+            return True
+        else:
+            print(f"Failed to disconnect. Return code: {return_code.value}")
+            return False
+    
+    def send_string(self, text, position=1):
+        """
+        Send a string to the terminal at specified position
+        
+        Args:
+            text (str): Text to send
+            position (int): Screen position (1-based)
+        
+        Returns:
+            bool: True if successful, False otherwise
+        """
+        if not self.connected:
+            print("Not connected to a session")
+            return False
+        
+        # Set cursor position first
+        if not self.set_cursor_position(position):
+            return False
+        
+        function_num = ctypes.c_int(3)  # Send Key
+        data = create_string_buffer(text.encode('ascii'), len(text))
+        length = ctypes.c_int(len(text))
+        return_code = ctypes.c_int(0)
+        
+        self.dll.WinHLLAPI(byref(function_num), data, byref(length), byref(return_code))
+        
+        if return_code.value == 0:
+            print(f"Successfully sent string: {text}")
+            return True
+        else:
+            print(f"Failed to send string. Return code: {return_code.value}")
+            return False
+    
+    def send_key(self, key):
+        """
+        Send a special key to the terminal
+        
+        Args:
+            key (str): Key to send (e.g., 'ENTER', 'TAB', 'F1', etc.)
+        
+        Returns:
+            bool: True if successful, False otherwise
+        """
+        if not self.connected:
+            print("Not connected to a session")
+            return False
+        
+        # Key mappings for common keys
+        key_map = {
+            'ENTER': '@E',
+            'TAB': '@T',
+            'F1': '@1',
+            'F2': '@2',
+            'F3': '@3',
+            'F4': '@4',
+            'F5': '@5',
+            'F6': '@6',
+            'F7': '@7',
+            'F8': '@8',
+            'F9': '@9',
+            'F10': '@a',
+            'F11': '@b',
+            'F12': '@c',
+            'CLEAR': '@C',
+            'PA1': '@p',
+            'PA2': '@q',
+            'PA3': '@r'
+        }
+        
+        key_code = key_map.get(key.upper(), key)
+        
+        function_num = ctypes.c_int(3)  # Send Key
+        data = create_string_buffer(key_code.encode('ascii'), len(key_code))
+        length = ctypes.c_int(len(key_code))
+        return_code = ctypes.c_int(0)
+        
+        self.dll.WinHLLAPI(byref(function_num), data, byref(length), byref(return_code))
+        
+        if return_code.value == 0:
+            print(f"Successfully sent key: {key}")
+            return True
+        else:
+            print(f"Failed to send key. Return code: {return_code.value}")
+            return False
+    
+    def get_screen_text(self, start_pos=1, length=1920):
+        """
+        Get text from the terminal screen
+        
+        Args:
+            start_pos (int): Starting position (1-based)
+            length (int): Number of characters to read
+        
+        Returns:
+            str: Screen text or None if failed
+        """
+        if not self.connected:
+            print("Not connected to a session")
+            return None
+        
+        function_num = ctypes.c_int(8)  # Copy Presentation Space
+        data = create_string_buffer(length)
+        length_param = ctypes.c_int(length)
+        return_code = ctypes.c_int(0)
+        
+        self.dll.WinHLLAPI(byref(function_num), data, byref(length_param), byref(return_code))
+        
+        if return_code.value == 0:
+            return data.value.decode('ascii', errors='ignore')
+        else:
+            print(f"Failed to get screen text. Return code: {return_code.value}")
+            return None
+    
+    def set_cursor_position(self, position):
+        """
+        Set cursor position on the screen
+        
+        Args:
+            position (int): Screen position (1-based)
+        
+        Returns:
+            bool: True if successful, False otherwise
+        """
+        if not self.connected:
+            print("Not connected to a session")
+            return False
+        
+        function_num = ctypes.c_int(0)  # Set Session Parameters
+        # Convert position to string format expected by HLLAPI
+        pos_str = str(position)
+        data = create_string_buffer(pos_str.encode('ascii'), len(pos_str))
+        length = ctypes.c_int(len(pos_str))
+        return_code = ctypes.c_int(0)
+        
+        self.dll.WinHLLAPI(byref(function_num), data, byref(length), byref(return_code))
+        
+        return return_code.value == 0
+    
+    def wait_for_screen_change(self, timeout=10):
+        """
+        Wait for screen to change (useful after sending commands)
+        
+        Args:
+            timeout (int): Maximum time to wait in seconds
+        
+        Returns:
+            bool: True if screen changed, False if timeout
+        """
+        if not self.connected:
+            return False
+        
+        start_time = time.time()
+        initial_screen = self.get_screen_text()
+        
+        while time.time() - start_time < timeout:
+            time.sleep(0.1)
+            current_screen = self.get_screen_text()
+            if current_screen != initial_screen:
+                return True
+        
+        return False
+    
+    def find_text_on_screen(self, search_text):
+        """
+        Find text on the current screen
+        
+        Args:
+            search_text (str): Text to search for
+        
+        Returns:
+            int: Position of text (1-based) or -1 if not found
+        """
+        screen_text = self.get_screen_text()
+        if screen_text:
+            pos = screen_text.find(search_text)
+            return pos + 1 if pos != -1 else -1
+        return -1
+
+
+# Example usage and utility functions
+def example_usage():
+    """
+    Example of how to use the QWS3270Interface
+    """
+    # Initialize the interface
+    terminal = QWS3270Interface()
+    
+    try:
+        # Connect to session A
+        if terminal.connect_presentation_space('A'):
+            
+            # Wait a moment for connection to establish
+            time.sleep(1)
+            
+            # Get initial screen content
+            screen_text = terminal.get_screen_text()
+            if screen_text:
+                print("Current screen content:")
+                print(screen_text[:200] + "..." if len(screen_text) > 200 else screen_text)
+            
+            # Example: Send a command
+            terminal.send_string("LOGON", 100)  # Send at position 100
+            terminal.send_key("ENTER")
+            
+            # Wait for screen to change
+            if terminal.wait_for_screen_change():
+                print("Screen changed after command")
+            
+            # Look for specific text
+            pos = terminal.find_text_on_screen("READY")
+            if pos > 0:
+                print(f"Found 'READY' at position {pos}")
+            
+            # Send function key
+            terminal.send_key("F3")
+            
+    except Exception as e:
+        print(f"Error: {e}")
+    
+    finally:
+        # Always disconnect when done
+        terminal.disconnect_presentation_space()
+
+
+if __name__ == "__main__":
+    example_usage()
