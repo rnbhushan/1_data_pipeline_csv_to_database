@@ -1,0 +1,204 @@
+public boolean setCursorPosition(int row, int col) {
+    if (!connected) {
+        System.out.println("Not connected to a session");
+        return false;
+    }
+    
+    try {
+        // First, get screen dimensions to validate coordinates
+        int[] screenSize = getScreenSize(); // You'll need this method
+        int screenWidth = screenSize != null ? screenSize[0] : 80; // Default to 80 if unknown
+        int screenHeight = screenSize != null ? screenSize[1] : 24; // Default to 24 if unknown
+        
+        // Validate coordinates (1-based)
+        if (row < 1 || row > screenHeight || col < 1 || col > screenWidth) {
+            System.out.println("Invalid coordinates: Row " + row + ", Column " + col);
+            System.out.println("Valid range: Row 1-" + screenHeight + ", Column 1-" + screenWidth);
+            return false;
+        }
+        
+        // Calculate linear position (0-based for calculation)
+        int position = (row - 1) * screenWidth + (col - 1);
+        
+        // HLLAPI Function 4 - Set Cursor Position
+        IntByReference functionNum = new IntByReference(4);
+        
+        // Create 2-byte buffer for position (little-endian)
+        ByteBuffer buffer = ByteBuffer.allocate(2);
+        buffer.order(ByteOrder.LITTLE_ENDIAN);
+        buffer.putShort((short) position);
+        byte[] data = buffer.array();
+        
+        IntByReference length = new IntByReference(2);
+        IntByReference returnCode = new IntByReference(0);
+        
+        // Call HLLAPI
+        WHLLAPI.INSTANCE.WinHLLAPI(functionNum, data, length, returnCode);
+        
+        int result = returnCode.getValue();
+        if (result == 0) {
+            System.out.println("Successfully set cursor to Row " + row + ", Column " + col + " (position " + position + ")");
+            return true;
+        } else {
+            System.out.println("Failed to set cursor position. Return code: " + result);
+            printHLLAPIError(result);
+            return false;
+        }
+        
+    } catch (Exception e) {
+        System.out.println("Error setting cursor position: " + e.getMessage());
+        e.printStackTrace();
+        return false;
+    }
+}
+
+// Helper method to get screen dimensions
+public int[] getScreenSize() {
+    try {
+        IntByReference functionNum = new IntByReference(9); // Query Session Status
+        byte[] data = new byte[128]; // Buffer for session info
+        IntByReference length = new IntByReference(128);
+        IntByReference returnCode = new IntByReference(0);
+        
+        WHLLAPI.INSTANCE.WinHLLAPI(functionNum, data, length, returnCode);
+        
+        if (returnCode.getValue() == 0) {
+            // Parse the response to get screen dimensions
+            // This varies by implementation - you may need to adjust
+            int width = 80;  // Default
+            int height = 24; // Default
+            
+            // For many HLLAPI implementations, screen size might be at specific offsets
+            // You might need to check your QWS3270 documentation for exact format
+            
+            return new int[]{width, height};
+        }
+    } catch (Exception e) {
+        System.out.println("Error getting screen size: " + e.getMessage());
+    }
+    
+    return new int[]{80, 24}; // Default 3270 screen size
+}
+
+// Helper method to print HLLAPI error descriptions
+private void printHLLAPIError(int errorCode) {
+    String errorMsg;
+    switch (errorCode) {
+        case 1:
+            errorMsg = "Your program is not connected to a host session";
+            break;
+        case 2:
+            errorMsg = "An error occurred while attempting to perform the requested function";
+            break;
+        case 4:
+            errorMsg = "The function requested is not supported";
+            break;
+        case 5:
+            errorMsg = "The host session is locked (Input Inhibited)";
+            break;
+        case 6:
+            errorMsg = "The cursor position specified is not valid";
+            break;
+        case 7:
+            errorMsg = "The host session is not connected";
+            break;
+        case 9:
+            errorMsg = "A system error occurred";
+            break;
+        case 24:
+            errorMsg = "The specified session ID is not valid or the session is not connected";
+            break;
+        case 25:
+            errorMsg = "Function not executed; invalid parameters";
+            break;
+        default:
+            errorMsg = "Unknown error code: " + errorCode;
+    }
+    System.out.println("HLLAPI Error: " + errorMsg);
+}
+
+// Alternative implementation using different data format (if above doesn't work)
+public boolean setCursorPositionAlternative(int row, int col) {
+    if (!connected) {
+        System.out.println("Not connected to a session");
+        return false;
+    }
+    
+    try {
+        IntByReference functionNum = new IntByReference(4);
+        
+        // Some HLLAPI implementations expect row,col as separate bytes
+        byte[] data = new byte[2];
+        data[0] = (byte) row;
+        data[1] = (byte) col;
+        
+        IntByReference length = new IntByReference(2);
+        IntByReference returnCode = new IntByReference(0);
+        
+        WHLLAPI.INSTANCE.WinHLLAPI(functionNum, data, length, returnCode);
+        
+        if (returnCode.getValue() == 0) {
+            System.out.println("Successfully set cursor to Row " + row + ", Column " + col);
+            return true;
+        } else {
+            System.out.println("Alternative method failed. Return code: " + returnCode.getValue());
+            printHLLAPIError(returnCode.getValue());
+            return false;
+        }
+        
+    } catch (Exception e) {
+        System.out.println("Error in alternative cursor positioning: " + e.getMessage());
+        return false;
+    }
+}
+
+// Method to verify current cursor position
+public int[] getCurrentCursorPosition() {
+    try {
+        IntByReference functionNum = new IntByReference(5); // Query Cursor Position
+        byte[] data = new byte[2];
+        IntByReference length = new IntByReference(2);
+        IntByReference returnCode = new IntByReference(0);
+        
+        WHLLAPI.INSTANCE.WinHLLAPI(functionNum, data, length, returnCode);
+        
+        if (returnCode.getValue() == 0) {
+            // Convert position back to row/col
+            ByteBuffer buffer = ByteBuffer.wrap(data);
+            buffer.order(ByteOrder.LITTLE_ENDIAN);
+            int position = buffer.getShort() & 0xFFFF;
+            
+            int screenWidth = 80; // You might want to get this dynamically
+            int row = (position / screenWidth) + 1;
+            int col = (position % screenWidth) + 1;
+            
+            return new int[]{row, col};
+        }
+    } catch (Exception e) {
+        System.out.println("Error getting cursor position: " + e.getMessage());
+    }
+    
+    return null;
+}
+
+// Test method to validate the implementation
+public void testCursorPosition() {
+    System.out.println("Testing cursor position functionality...");
+    
+    // Get current position
+    int[] currentPos = getCurrentCursorPosition();
+    if (currentPos != null) {
+        System.out.println("Current cursor position: Row " + currentPos[0] + ", Column " + currentPos[1]);
+    }
+    
+    // Try to set cursor to position 1,1
+    if (setCursorPosition(1, 1)) {
+        int[] newPos = getCurrentCursorPosition();
+        if (newPos != null) {
+            System.out.println("Cursor now at: Row " + newPos[0] + ", Column " + newPos[1]);
+        }
+    } else {
+        System.out.println("Trying alternative method...");
+        setCursorPositionAlternative(1, 1);
+    }
+}
