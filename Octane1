@@ -1,0 +1,271 @@
+<!-- add to pom -->
+<dependency>
+  <groupId>com.microfocus.adm.octane</groupId>
+  <artifactId>ALMOctaneJavaRESTSDK</artifactId>
+  <version>25.2.102</version>
+</dependency>
+
+
+
+// Skeleton (look up detailed usage in the repo README)
+import com.hp.octane.integrations.services.rest.*;
+import com.hpe.adm.nga.sdk.*;
+import com.hpe.adm.nga.sdk.authentication.SimpleClientAuthentication;
+
+Authentication auth = new SimpleClientAuthentication(CLIENT_ID, CLIENT_SECRET);
+Octane octane = new Octane.Builder(auth)
+        .Server(BASE_URL)
+        .sharedSpace(SPACE_ID)
+        .workSpace(WORKSPACE_ID)
+        .build();
+
+// Then: octane.entityList("suite_run").create(...);
+//       octane.entityList("manual_runs").create(...);
+//       octane.entityList("attachments").create(multipart ...);
+
+
+
+
+
+<project>
+  <modelVersion>4.0.0</modelVersion>
+  <groupId>demo</groupId>
+  <artifactId>octane-integration</artifactId>
+  <version>1.0.0</version>
+
+  <dependencies>
+    <!-- HTTP client -->
+    <dependency>
+      <groupId>com.squareup.okhttp3</groupId>
+      <artifactId>okhttp</artifactId>
+      <version>4.12.0</version>
+    </dependency>
+
+    <!-- JSON -->
+    <dependency>
+      <groupId>com.fasterxml.jackson.core</groupId>
+      <artifactId>jackson-databind</artifactId>
+      <version>2.17.1</version>
+    </dependency>
+
+    <!-- Optional logging -->
+    <dependency>
+      <groupId>org.slf4j</groupId>
+      <artifactId>slf4j-simple</artifactId>
+      <version>2.0.12</version>
+    </dependency>
+  </dependencies>
+</project>
+
+
+
+
+// src/main/java/demo/OctaneApiClient.java
+package demo;
+
+import com.fasterxml.jackson.databind.JsonNode;
+import com.fasterxml.jackson.databind.ObjectMapper;
+import okhttp3.*;
+
+import java.io.File;
+import java.io.IOException;
+import java.net.CookieManager;
+import java.net.CookiePolicy;
+import java.util.List;
+
+public class OctaneApiClient {
+    private static final MediaType JSON = MediaType.parse("application/json; charset=utf-8");
+    private static final MediaType OCTET = MediaType.parse("application/octet-stream");
+
+    private final String baseUrl;
+    private final String spaceId;
+    private final String workspaceId;
+    private final OkHttpClient http;
+    private final ObjectMapper om = new ObjectMapper();
+
+    public OctaneApiClient(String baseUrl, String spaceId, String workspaceId) {
+        this.baseUrl = baseUrl.endsWith("/") ? baseUrl.substring(0, baseUrl.length() - 1) : baseUrl;
+        this.spaceId = spaceId;
+        this.workspaceId = workspaceId;
+
+        CookieManager cm = new CookieManager();
+        cm.setCookiePolicy(CookiePolicy.ACCEPT_ALL);
+
+        this.http = new OkHttpClient.Builder()
+                .cookieJar(new JavaNetCookieJar(cm))
+                .build();
+    }
+
+    /** 1) Sign in with Client ID/Secret → sets LWSSO cookie */
+    public void signIn(String clientId, String clientSecret) throws IOException {
+        String url = baseUrl + "/authentication/sign_in";
+        String body = om.createObjectNode()
+                .put("client_id", clientId)
+                .put("client_secret", clientSecret)
+                .toString();
+
+        Request req = new Request.Builder()
+                .url(url)
+                .post(RequestBody.create(body, JSON))
+                .build();
+
+        try (Response resp = http.newCall(req).execute()) {
+            if (!resp.isSuccessful()) {
+                throw new IOException("sign_in failed: HTTP " + resp.code() + " - " + (resp.body() != null ? resp.body().string() : ""));
+            }
+        }
+    }
+
+    private String api(String path) {
+        return baseUrl + "/api/shared_spaces/" + spaceId + "/workspaces/" + workspaceId + path;
+    }
+
+    private String postReturnId(String url, String payload) throws IOException {
+        Request req = new Request.Builder()
+                .url(url)
+                .post(RequestBody.create(payload, JSON))
+                .build();
+
+        try (Response resp = http.newCall(req).execute()) {
+            if (!resp.isSuccessful()) {
+                throw new IOException("POST " + url + " failed: HTTP " + resp.code() + " - " + (resp.body() != null ? resp.body().string() : ""));
+            }
+            String txt = resp.body().string();
+            JsonNode root = om.readTree(txt);
+            return root.path("data").get(0).path("id").asText();
+        }
+    }
+
+    private void put(String url, String payload) throws IOException {
+        Request req = new Request.Builder()
+                .url(url)
+                .put(RequestBody.create(payload, JSON))
+                .build();
+
+        try (Response resp = http.newCall(req).execute()) {
+            if (!resp.isSuccessful()) {
+                throw new IOException("PUT " + url + " failed: HTTP " + resp.code() + " - " + (resp.body() != null ? resp.body().string() : ""));
+            }
+        }
+    }
+
+    /** 2) Create a planned Suite Run for a given Test Suite id */
+    public String createSuiteRun(String suiteId, String releaseId, String suiteRunName) throws IOException {
+        String url = api("/suite_run");
+        // Use logical name for “planned” (or swap to another list_node as needed)
+        String payload = "{ \"data\": [ {" +
+                "\"test\": {\"id\": " + suiteId + ", \"type\": \"test_suite\"}," +
+                "\"native_status\": {\"id\": \"list_node.run_native_status.planned\", \"type\": \"list_node\"}," +
+                (releaseId != null ? "\"release\": {\"id\": " + releaseId + ", \"type\": \"release\"}," : "") +
+                "\"name\": " + quote(suiteRunName) +
+                "} ] }";
+        return postReturnId(url, payload);
+    }
+
+    /** 3) Create a Manual Run for an existing Manual Test id, with native_status (passed/failed/… ) */
+    public String createManualRun(String manualTestId, String releaseId, String runName, String nativeStatusLogicalName) throws IOException {
+        String url = api("/manual_runs");
+        String payload = "{ \"data\": [ {" +
+                "\"test\": {\"id\": " + manualTestId + ", \"type\": \"test_manual\"}," +
+                (releaseId != null ? "\"release\": {\"id\": " + releaseId + ", \"type\": \"release\"}," : "") +
+                "\"name\": " + quote(runName) + "," +
+                "\"native_status\": {\"id\": " + quote(nativeStatusLogicalName) + ", \"type\": \"list_node\"}" +
+                "} ] }";
+        return postReturnId(url, payload);
+    }
+
+    /** 4) Update an existing Run’s native_status (e.g., to passed/failed) */
+    public void updateRunStatus(String runId, String nativeStatusLogicalName) throws IOException {
+        String url = api("/runs/" + runId);
+        String payload = "{ \"data\": [ {" +
+                "\"id\": " + quote(runId) + "," +
+                "\"type\": \"run_manual\"," +
+                "\"native_status\": {\"id\": " + quote(nativeStatusLogicalName) + ", \"type\": \"list_node\"}" +
+                "} ] }";
+        put(url, payload);
+    }
+
+    /** 5) Upload a screenshot (or any file) and attach it to a run */
+    public String attachFileToRun(String runId, File file, String displayName) throws IOException {
+        HttpUrl url = HttpUrl.parse(api("/attachments")).newBuilder()
+                .addQueryParameter("name", displayName != null ? displayName : file.getName())
+                // owner_<entity name>: for runs this is owner_run
+                .addQueryParameter("owner_run", runId)
+                .build();
+
+        Request req = new Request.Builder()
+                .url(url)
+                .post(RequestBody.create(file, OCTET))
+                .build();
+
+        try (Response resp = http.newCall(req).execute()) {
+            if (!resp.isSuccessful()) {
+                throw new IOException("Upload attachment failed: HTTP " + resp.code() + " - " + (resp.body() != null ? resp.body().string() : ""));
+            }
+            String txt = resp.body().string();
+            JsonNode root = om.readTree(txt);
+            return root.path("data").get(0).path("id").asText();
+        }
+    }
+
+    private static String quote(String s) { return "\"" + s.replace("\"", "\\\"") + "\""; }
+}
+
+
+
+// src/main/java/demo/Demo.java
+package demo;
+
+import java.io.File;
+
+/** Minimal end-to-end flow */
+public class Demo {
+    // === Fill these from your env/config ===
+    static final String BASE_URL     = "https://your-octane.example.com";
+    static final String SPACE_ID     = "1001";
+    static final String WORKSPACE_ID = "1002";
+    static final String CLIENT_ID    = "xxxxxxxxxxxxxxxx";
+    static final String CLIENT_SECRET= "yyyyyyyyyyyyyyyy";
+
+    // Domain objects you want to target
+    static final String SUITE_ID   = "1067";   // test suite id
+    static final String RELEASE_ID = "1001";   // optional, can be null
+    static final String TEST_ID    = "1079";   // manual test id
+
+    public static void main(String[] args) throws Exception {
+        OctaneApiClient api = new OctaneApiClient(BASE_URL, SPACE_ID, WORKSPACE_ID);
+
+        // 1) Auth
+        api.signIn(CLIENT_ID, CLIENT_SECRET); // sets LWSSO cookie in the client
+        System.out.println("Signed in.");
+
+        // 2) Create (or reuse) a Suite Run
+        String suiteRunId = api.createSuiteRun(SUITE_ID, RELEASE_ID, "MyTestSuiteRun - From Java");
+        System.out.println("SuiteRun ID = " + suiteRunId);
+
+        // 3) Create a manual run with Passed status
+        String runId = api.createManualRun(
+                TEST_ID,
+                RELEASE_ID,
+                "Login test - build #123",
+                "list_node.run_native_status.passed"     // or failed / skipped / planned, etc.
+        );
+        System.out.println("Manual Run ID = " + runId);
+
+        // 4) (Optional) Flip status later, e.g., to failed
+        // api.updateRunStatus(runId, "list_node.run_native_status.failed");
+
+        // 5) Attach a screenshot to that run
+        File screenshot = new File("C:/tmp/screenshot.png");
+        if (screenshot.exists()) {
+            String attachmentId = api.attachFileToRun(runId, screenshot, "Login_error.png");
+            System.out.println("Attachment ID = " + attachmentId);
+        } else {
+            System.out.println("Screenshot not found, skipping attachment.");
+        }
+
+        System.out.println("Done.");
+    }
+}
+
+
