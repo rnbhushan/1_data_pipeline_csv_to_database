@@ -1,0 +1,79 @@
+// --- add these imports if missing ---
+import okhttp3.HttpUrl;
+import okhttp3.MediaType;
+import okhttp3.Request;
+import okhttp3.RequestBody;
+import okhttp3.Response;
+import com.fasterxml.jackson.databind.JsonNode;
+import java.io.File;
+import java.io.IOException;
+
+public class OctaneClient {
+  // ... keep your existing fields/ctor/signIn/api/postXml/getJson ...
+
+  /** Upload one attachment to a run (owner_run). Returns the server JSON (contains attachment id). */
+  public JsonNode uploadAttachmentToRun(String runId, File file, String displayName) throws IOException {
+    if (runId == null || runId.isEmpty()) {
+      throw new IllegalArgumentException("runId is required");
+    }
+    if (file == null || !file.exists() || !file.isFile()) {
+      throw new IllegalArgumentException("File not found: " + file);
+    }
+
+    HttpUrl url = HttpUrl.parse(api("/attachments")).newBuilder()
+        .addQueryParameter("name", (displayName != null && !displayName.isEmpty()) ? displayName : file.getName())
+        .addQueryParameter("owner_run", runId)
+        .build();
+
+    MediaType OCTET = MediaType.parse("application/octet-stream");
+
+    Request req = new Request.Builder()
+        .url(url)
+        .post(RequestBody.create(file, OCTET))
+        .header("Content-Type", "application/octet-stream")
+        .build();
+
+    try (Response r = http.newCall(req).execute()) {
+      String body = (r.body() != null ? r.body().string() : "");
+      if (!r.isSuccessful()) {
+        throw new IOException("Attachment failed (" + file.getName() + "): HTTP " + r.code() + " " + body);
+      }
+      return om.readTree(body.isEmpty() ? "{}" : body);
+    }
+  }
+}
+
+
+
+import java.io.File;
+import java.util.Arrays;
+import java.util.List;
+
+public class DemoAttachMany {
+  public static void main(String[] args) throws Exception {
+    String BASE_URL   = "https://your-octane.example.com";
+    String SPACE_ID   = "1001";
+    String WORKSPACE  = "1002";
+    String CLIENT_ID  = "xxxxxxxx";
+    String CLIENT_SEC = "yyyyyyyy";
+
+    // You should have already resolved this runId (the run created under your suite run)
+    String RUN_ID = "123456";  // <- set to the run id you want to attach to
+
+    OctaneClient oc = new OctaneClient(BASE_URL, SPACE_ID, WORKSPACE);
+    oc.signIn(CLIENT_ID, CLIENT_SEC);
+
+    List<String> attachmentIds = OctaneAttachments.attachFilesToRun(
+        oc,
+        RUN_ID,
+        Arrays.asList(
+            new File("C:/evidence/login_step.png"),
+            new File("C:/evidence/console.log"),
+            new File("C:/evidence/report.pdf")
+        )
+    );
+
+    System.out.println("Attached: " + attachmentIds);
+  }
+}
+
