@@ -1,0 +1,166 @@
+import okhttp3.*;
+import com.fasterxml.jackson.databind.*;
+
+import java.io.IOException;
+
+public class OctaneClient {
+  private static final MediaType JSON = MediaType.parse("application/json; charset=utf-8");
+  private static final MediaType XML  = MediaType.parse("application/xml; charset=utf-8");
+
+  private final String base, space, ws;
+  private final OkHttpClient http = new OkHttpClient();
+  private final ObjectMapper om = new ObjectMapper();
+
+  public OctaneClient(String baseUrl, String sharedSpaceId, String workspaceId) {
+    this.base = baseUrl.endsWith("/") ? baseUrl.substring(0, baseUrl.length()-1) : baseUrl;
+    this.space = sharedSpaceId; this.ws = workspaceId;
+  }
+
+  public void signIn(String clientId, String clientSecret) throws IOException {
+    String url = base + "/authentication/sign_in";
+    String body = "{\"client_id\":\""+clientId+"\",\"client_secret\":\""+clientSecret+"\"}";
+    Request req = new Request.Builder().url(url)
+        .post(RequestBody.create(body, JSON)).build();
+    try (Response r = http.newCall(req).execute()) {
+      if (!r.isSuccessful()) throw new IOException("sign_in failed: " + r.code() + " " + r.body().string());
+    }
+  }
+
+  public String api(String path){ return base + "/api/shared_spaces/" + space + "/workspaces/" + ws + path; }
+
+  public JsonNode postXml(String url, String xml) throws IOException {
+    Request req = new Request.Builder().url(url)
+        .post(RequestBody.create(xml, XML)).build();
+    try (Response r = http.newCall(req).execute()) {
+      if (!r.isSuccessful()) throw new IOException("POST " + url + " -> " + r.code() + " " + r.body().string());
+      return om.readTree(r.body().string());
+    }
+  }
+
+  public JsonNode getJson(String url) throws IOException {
+    Request req = new Request.Builder().url(url).get().build();
+    try (Response r = http.newCall(req).execute()) {
+      if (!r.isSuccessful()) throw new IOException("GET " + url + " -> " + r.code() + " " + r.body().string());
+      return om.readTree(r.body().string());
+    }
+  }
+}
+
+
+
+import com.fasterxml.jackson.databind.JsonNode;
+
+public class OctaneResults {
+
+  /**
+   * Push a single automated test run under a given Test Suite.
+   *
+   * @param oc            authenticated OctaneClient
+   * @param suiteId       ALM Octane Test Suite ID (required)
+   * @param releaseId     Release ID (nullable, but useful)
+   * @param externalSuiteRunName  Optional label for the suite run (maps to suite_ref external_run_id)
+   * @param module        Component/module (optional, helps identity)
+   * @param pkg           Package (optional)
+   * @param clazz         Class (optional)
+   * @param testName      Test name (required)
+   * @param durationMs    Duration in ms (required)
+   * @param status        "Passed" | "Failed" | "Skipped" (required)
+   * @return task status string like QUEUED/RUNNING/SUCCESS/FAILED
+   */
+  public static String pushAutomatedResultToSuite(
+      OctaneClient oc,
+      String suiteId,
+      String releaseId,
+      String externalSuiteRunName,
+      String module,
+      String pkg,
+      String clazz,
+      String testName,
+      long durationMs,
+      String status
+  ) throws Exception {
+
+    // Build links block (suite + optional release)
+    StringBuilder links = new StringBuilder();
+    links.append("<suite_ref id=\"").append(xmlEsc(suiteId)).append("\"");
+    if (externalSuiteRunName != null && !externalSuiteRunName.isEmpty()) {
+      links.append(" external_run_id=\"").append(xmlEsc(externalSuiteRunName)).append("\"");
+    }
+    links.append("/>");
+    if (releaseId != null && !releaseId.isEmpty()) {
+      links.append("<release_ref id=\"").append(xmlEsc(releaseId)).append("\"/>");
+    }
+
+    // Minimal test_run + identity attributes
+    StringBuilder tr = new StringBuilder();
+    tr.append("<test_run ");
+    if (module != null && !module.isEmpty()) tr.append("module=\"").append(xmlEsc(module)).append("\" ");
+    if (pkg != null && !pkg.isEmpty())      tr.append("package=\"").append(xmlEsc(pkg)).append("\" ");
+    if (clazz != null && !clazz.isEmpty())  tr.append("class=\"").append(xmlEsc(clazz)).append("\" ");
+    tr.append("name=\"").append(xmlEsc(testName)).append("\" ");
+    tr.append("duration=\"").append(durationMs).append("\" ");
+    tr.append("status=\"").append(xmlEsc(status)).append("\"/>");
+
+    String xml =
+        "<test_result>" +
+        // Global links (apply to all test_runs below)
+        links +
+        "<test_runs>" +
+        tr +
+        "</test_runs>" +
+        "</test_result>";
+
+    // 1) POST results
+    JsonNode resp = oc.postXml(oc.api("/test-results"), xml);
+    String taskId = resp.path("id").asText();     // response looks like {"status":"queued","id":1103}
+    String statusNow = resp.path("status").asText();
+
+    // 2) (optional) Poll task status once
+    if (taskId != null && !taskId.isEmpty()) {
+      JsonNode task = oc.getJson(oc.api("/test-results/" + taskId));
+      statusNow = task.path("status").asText();
+    }
+    return statusNow;
+  }
+
+  private static String xmlEsc(String s){
+    return s.replace("&","&amp;").replace("\"","&quot;").replace("<","&lt;").replace(">","&gt;");
+  }
+}
+
+
+
+public class Demo {
+  public static void main(String[] args) throws Exception {
+    // Fill these
+    String BASE_URL   = "https://your-octane.example.com";
+    String SPACE_ID   = "1001";
+    String WORKSPACE  = "1002";
+    String CLIENT_ID  = "xxxxxxxx";
+    String CLIENT_SEC = "yyyyyyyy";
+
+    String SUITE_ID   = "12345";   // <- your Test Suite id
+    String RELEASE_ID = "2001";    // optional but useful
+
+    OctaneClient oc = new OctaneClient(BASE_URL, SPACE_ID, WORKSPACE);
+    oc.signIn(CLIENT_ID, CLIENT_SEC);
+
+    String status = OctaneResults.pushAutomatedResultToSuite(
+        oc,
+        SUITE_ID,
+        RELEASE_ID,
+        "Nightly Build #842",        // external suite run name (optional)
+        "/payments",                 // module (component)
+        "it.smoke",                  // package
+        "CheckoutIT",                // class
+        "should_handle_declined_card",
+        2350L,
+        "Passed"
+    );
+
+    System.out.println("Test-results task status: " + status);
+  }
+}
+
+
+
