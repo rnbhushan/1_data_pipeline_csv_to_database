@@ -1,0 +1,109 @@
+<dependency>
+  <groupId>com.squareup.okhttp3</groupId>
+  <artifactId>okhttp</artifactId>
+  <version>4.12.0</version>
+</dependency>
+<dependency>
+  <groupId>com.fasterxml.jackson.core</groupId>
+  <artifactId>jackson-databind</artifactId>
+  <version>2.17.1</version>
+</dependency>
+
+
+
+
+import okhttp3.*;
+import com.fasterxml.jackson.databind.*;
+
+public class Octane {
+  private static final MediaType JSON = MediaType.parse("application/json; charset=utf-8");
+  private static final MediaType XML  = MediaType.parse("application/xml; charset=utf-8");
+
+  private final String base, space, ws;
+  private final OkHttpClient http = new OkHttpClient();
+  private final ObjectMapper om = new ObjectMapper();
+
+  public Octane(String baseUrl, String sharedSpaceId, String workspaceId) {
+    this.base = baseUrl.endsWith("/") ? baseUrl.substring(0, baseUrl.length()-1) : baseUrl;
+    this.space = sharedSpaceId; this.ws = workspaceId;
+  }
+
+  public void signIn(String clientId, String clientSecret) throws Exception {
+    String url = base + "/authentication/sign_in";
+    String body = "{\"client_id\":\""+clientId+"\",\"client_secret\":\""+clientSecret+"\"}";
+    try (Response r = http.newCall(new Request.Builder().url(url)
+        .post(RequestBody.create(body, JSON)).build()).execute()) {
+      if (!r.isSuccessful()) throw new RuntimeException("sign_in failed: "+r.code()+" "+r.body().string());
+    }
+  }
+
+  private String api(String path){ return base + "/api/shared_spaces/"+space+"/workspaces/"+ws + path; }
+
+  private JsonNode postJson(String url, String json) throws Exception {
+    try (Response r = http.newCall(new Request.Builder().url(url)
+        .post(RequestBody.create(json, JSON)).build()).execute()) {
+      if (!r.isSuccessful()) throw new RuntimeException("POST "+url+" -> "+r.code()+" "+r.body().string());
+      return om.readTree(r.body().string());
+    }
+  }
+
+  private JsonNode postXml(String url, String xml) throws Exception {
+    try (Response r = http.newCall(new Request.Builder().url(url)
+        .post(RequestBody.create(xml, XML)).build()).execute()) {
+      if (!r.isSuccessful()) throw new RuntimeException("POST "+url+" -> "+r.code()+" "+r.body().string());
+      return om.readTree(r.body().string());
+    }
+  }
+
+
+
+
+public String pushAutomatedResult(Octane oc) throws Exception {
+  // Minimal valid payload + identity fields; duration in ms, status: Passed|Failed|Skipped
+  String xml =
+      "<test_result>" +
+      "  <test_runs>" +
+      "    <test_run module=\"/payments\" package=\"it.smoke\" class=\"CheckoutIT\"" +
+      "              name=\"should_handle_declined_card\" duration=\"2350\" status=\"Passed\"/>" +
+      "  </test_runs>" +
+      // Optional links: release/suite/program, test fields (tool, framework), env labels, etc.
+      // See doc for full structure.
+      "</test_result>";
+
+  var resp = oc.postXml(oc.api("/test-results"), xml);
+  // Returns a task with status (QUEUED/RUNNING/SUCCESS/FAILED)
+  return resp.path("Status").asText(); // e.g., "SUCCESS"
+}
+
+
+}
+
+
+
+public String createAutomatedTest(Octane oc,
+                                  String name,
+                                  String moduleId,      // application module (component) id; can be null
+                                  String pkg,
+                                  String className,
+                                  String testingTool,   // e.g., "Selenium"
+                                  String framework,     // e.g., "JUnit"
+                                  String testLevel)     // e.g., "Integration Test"
+    throws Exception {
+
+  // Build list_node references for test characteristics if you want to satisfy local rules
+  // Values are stored as display strings; Octane will map/add list items as needed per docs.
+  String fields =
+      "\"name\":\""+esc(name)+"\"," +
+      (pkg != null ? "\"package\":\""+esc(pkg)+"\"," : "") +
+      (className != null ? "\"class_name\":\""+esc(className)+"\"," : "") +
+      (moduleId != null ? "\"product_areas\":{\"data\":[{\"type\":\"product_area\",\"id\":\""+moduleId+"\"}]},":"") +
+      // test characteristics (single or multi valued); safe to include to pass “required” rules
+      "\"test_level\":\""+esc(testLevel)+"\"," +
+      "\"testing_tool_type\":\""+esc(testingTool)+"\"," +
+      "\"framework\":\""+esc(framework)+"\"";
+
+  String payload = "{ \"data\": [ { "+ fields +" } ] }";
+  var resp = oc.postJson(oc.api("/automated_tests"), payload);
+  return resp.path("data").get(0).path("id").asText();
+}
+private static String esc(String s){ return s.replace("\"","\\\""); }
