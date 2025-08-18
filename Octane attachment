@@ -1,0 +1,141 @@
+import okhttp3.*;
+import com.fasterxml.jackson.databind.JsonNode;
+import java.io.File;
+import java.io.IOException;
+import java.util.List;
+
+public class OctaneAttachments {
+  private static final MediaType OCTET = MediaType.parse("application/octet-stream");
+
+  /**
+   * Upload N attachments to the same run (owner_run=<runId>).
+   * Each file is uploaded as a separate POST to /attachments.
+   */
+  public static void attachFilesToRun(OctaneClient oc, String runId, List<File> files) throws IOException {
+    for (File f : files) {
+      if (!f.exists() || !f.isFile()) continue;
+
+      HttpUrl url = HttpUrl.parse(oc.api("/attachments")).newBuilder()
+          .addQueryParameter("name", f.getName())
+          .addQueryParameter("owner_run", runId)   // <-- run owner
+          .build();
+
+      Request req = new Request.Builder()
+          .url(url)
+          .post(RequestBody.create(f, OCTET))
+          .header("Content-Type", "application/octet-stream")
+          .build();
+
+      try (Response r = oc.http().newCall(req).execute()) {
+        if (!r.isSuccessful()) {
+          throw new IOException("Attach failed (" + f.getName() + "): " + r.code() +
+              " " + (r.body() != null ? r.body().string() : ""));
+        }
+      }
+    }
+  }
+}
+
+
+
+import com.fasterxml.jackson.databind.JsonNode;
+import java.io.IOException;
+import java.net.URLEncoder;
+import java.nio.charset.StandardCharsets;
+
+public class OctaneRunResolver {
+
+  public static String resolveAutomatedTestId(OctaneClient oc, String name, String pkg, String clazz, String modulePath)
+      throws IOException {
+    // automated_tests?query="name='..';package='..';class_name='..';product_areas.name='..'"
+    String q = "name='" + esc(name) + "'";
+    if (pkg   != null && !pkg.isEmpty())   q += ";package='" + esc(pkg) + "'";
+    if (clazz != null && !clazz.isEmpty()) q += ";class_name='" + esc(clazz) + "'";
+    if (modulePath != null && !modulePath.isEmpty()) q += ";product_areas.name='" + esc(modulePath) + "'";
+
+    String url = oc.api("/automated_tests") + "?fields=id,name&query=" + enc(q) + "&limit=1";
+    JsonNode res = oc.getJson(url);
+    return res.path("data").size() > 0 ? res.path("data").get(0).path("id").asText() : null;
+  }
+
+  public static String resolveSuiteRunId(OctaneClient oc, String suiteId, String externalSuiteRunName)
+      throws IOException {
+    // suite_runs?query="test={id EQ <suiteId>};<optional name='externalSuiteRunName'>" ordered latest-first
+    String q = "test={id EQ " + suiteId + "}";
+    if (externalSuiteRunName != null && !externalSuiteRunName.isEmpty()) {
+      q += ";name='" + esc(externalSuiteRunName) + "'";
+    }
+    String url = oc.api("/suite_runs") + "?fields=id,name,creation_time&query=" + enc(q) + "&order_by=-creation_time&limit=1";
+    JsonNode r = oc.getJson(url);
+    return r.path("data").size() > 0 ? r.path("data").get(0).path("id").asText() : null;
+  }
+
+  public static String resolveLatestRunIdForTestInSuiteRun(OctaneClient oc, String autoTestId, String suiteRunId)
+      throws IOException {
+    // runs?query="test={id EQ autoTestId};suite_run={id EQ suiteRunId}"
+    String q = "test={id EQ " + autoTestId + "};suite_run={id EQ " + suiteRunId + "}";
+    String url = oc.api("/runs") + "?fields=id,last_modified,run_native_status&query=" + enc(q) + "&order_by=-last_modified&limit=1";
+    JsonNode r = oc.getJson(url);
+    return r.path("data").size() > 0 ? r.path("data").get(0).path("id").asText() : null;
+  }
+
+  private static String esc(String s){ return s.replace("'", "\\'"); }
+  private static String enc(String s){ return URLEncoder.encode(s, StandardCharsets.UTF_8); }
+}
+
+
+
+
+
+
+import java.io.File;
+import java.util.Arrays;
+
+public class DemoAttachMany {
+  public static void main(String[] args) throws Exception {
+    // === fill your env ===
+    String BASE_URL   = "https://your-octane.example.com";
+    String SPACE_ID   = "1001";
+    String WORKSPACE  = "1002";
+    String CLIENT_ID  = "xxxxxxxx";
+    String CLIENT_SEC = "yyyyyyyy";
+    String SUITE_ID   = "12345";
+    String SUITE_RUN_LABEL = "Nightly Build #842"; // the same external label you used (optional)
+
+    // test identity (must match what you posted via /test-results)
+    String MODULE = "/payments";
+    String PKG    = "it.smoke";
+    String CLS    = "CheckoutIT";
+    String NAME   = "should_handle_declined_card";
+
+    OctaneClient oc = new OctaneClient(BASE_URL, SPACE_ID, WORKSPACE);
+    oc.signIn(CLIENT_ID, CLIENT_SEC);
+
+    // 1) Find the automated test, suite run, and latest run under that suite run
+    String autoTestId = OctaneRunResolver.resolveAutomatedTestId(oc, NAME, PKG, CLS, MODULE);
+    if (autoTestId == null) throw new IllegalStateException("Automated test not found; ensure /test-results posted successfully.");
+
+    String suiteRunId = OctaneRunResolver.resolveSuiteRunId(oc, SUITE_ID, SUITE_RUN_LABEL);
+    if (suiteRunId == null) throw new IllegalStateException("Suite run not found; check suite id / label.");
+
+    String runId = OctaneRunResolver.resolveLatestRunIdForTestInSuiteRun(oc, autoTestId, suiteRunId);
+    if (runId == null) throw new IllegalStateException("No run found for test in that suite run.");
+
+    // 2) Attach multiple files to that run
+    OctaneAttachments.attachFilesToRun(
+        oc,
+        runId,
+        Arrays.asList(
+            new File("C:/evidence/login_step.png"),
+            new File("C:/evidence/console.log"),
+            new File("C:/evidence/report.pdf")
+        )
+    );
+
+    System.out.println("Attached all files to run " + runId);
+  }
+}
+
+
+
+
