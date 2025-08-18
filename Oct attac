@@ -1,0 +1,34 @@
+package your.pkg;  // <- change to your package
+
+import com.fasterxml.jackson.databind.JsonNode;
+import java.io.File;
+import java.io.IOException;
+import java.util.ArrayList;
+import java.util.List;
+
+public class OctaneAttachments {
+
+  /**
+   * Attach multiple files to the same run.
+   * @return list of attachment IDs created (if the server returns them)
+   */
+  public static List<String> attachFilesToRun(OctaneClient oc, String runId, List<File> files) throws IOException {
+    List<String> ids = new ArrayList<>();
+    if (files == null) return ids;
+
+    for (File f : files) {
+      if (f == null || !f.exists() || !f.isFile()) continue;
+
+      JsonNode resp = oc.uploadAttachmentToRun(runId, f, f.getName());
+      String id = null;
+      // Some Octane versions return {"data":[{"id":"<id>", ...}]}; others return {"id":"..."} or empty
+      if (resp.has("data") && resp.path("data").isArray() && resp.path("data").size() > 0) {
+        id = resp.path("data").get(0).path("id").asText(null);
+      } else if (resp.has("id")) {
+        id = resp.path("id").asText(null);
+      }
+      if (id != null) ids.add(id);
+    }
+    return ids;
+  }
+}
