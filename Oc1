@@ -1,0 +1,70 @@
+import okhttp3.*;
+import com.fasterxml.jackson.databind.*;
+import java.io.IOException;
+import java.net.CookieManager;
+import java.net.CookiePolicy;
+
+public class OctaneClient {
+  private static final MediaType JSON = MediaType.parse("application/json; charset=utf-8");
+  private static final MediaType XML  = MediaType.parse("application/xml; charset=utf-8");
+
+  private final String base, space, ws;
+  private final OkHttpClient http;
+  private final ObjectMapper om = new ObjectMapper();
+
+  public OctaneClient(String baseUrl, String sharedSpaceId, String workspaceId) {
+    this.base = baseUrl.endsWith("/") ? baseUrl.substring(0, baseUrl.length()-1) : baseUrl;
+    this.space = sharedSpaceId; this.ws = workspaceId;
+
+    CookieManager cm = new CookieManager();
+    cm.setCookiePolicy(CookiePolicy.ACCEPT_ALL);
+    this.http = new OkHttpClient.Builder()
+        .cookieJar(new JavaNetCookieJar(cm))   // ← keep LWSSO/QCSession cookies
+        .followRedirects(true)
+        .build();
+  }
+
+  public void signIn(String clientId, String clientSecret) throws IOException {
+    String url  = base + "/authentication/sign_in";
+    String body = "{\"client_id\":\""+clientId+"\",\"client_secret\":\""+clientSecret+"\"}";
+    Request req = new Request.Builder()
+        .url(url)
+        .post(RequestBody.create(body, JSON))
+        .header("Content-Type", "application/json")
+        .build();
+    try (Response r = http.newCall(req).execute()) {
+      if (!r.isSuccessful()) {
+        String msg = r.body() != null ? r.body().string() : "";
+        throw new IOException("sign_in failed: " + r.code() + " " + msg);
+      }
+    }
+  }
+
+  public String api(String path){ return base + "/api/shared_spaces/" + space + "/workspaces/" + ws + path; }
+
+  public JsonNode postXml(String url, String xml) throws IOException {
+    Request req = new Request.Builder()
+        .url(url)
+        .post(RequestBody.create(xml, XML))
+        .header("Content-Type", "application/xml")
+        .build();
+    try (Response r = http.newCall(req).execute()) {
+      String body = r.body() != null ? r.body().string() : "";
+      if (!r.isSuccessful()) {
+        throw new IOException("POST " + url + " -> " + r.code() + " " + body);
+      }
+      return om.readTree(body.isEmpty() ? "{}" : body);
+    }
+  }
+
+  public JsonNode getJson(String url) throws IOException {
+    Request req = new Request.Builder().url(url).get().build();
+    try (Response r = http.newCall(req).execute()) {
+      String body = r.body() != null ? r.body().string() : "";
+      if (!r.isSuccessful()) {
+        throw new IOException("GET " + url + " -> " + r.code() + " " + body);
+      }
+      return om.readTree(body.isEmpty() ? "{}" : body);
+    }
+  }
+}
