@@ -1,0 +1,199 @@
+import okhttp3.*;
+import com.fasterxml.jackson.databind.*;
+import java.io.IOException;
+import java.net.CookieManager;
+import java.net.CookiePolicy;
+import java.net.URLEncoder;
+
+public class OctaneClient {
+  private static final MediaType JSON = MediaType.parse("application/json; charset=utf-8");
+
+  private final String base, space, ws;
+  final OkHttpClient http;
+  final ObjectMapper om = new ObjectMapper();
+
+  public OctaneClient(String baseUrl, String sharedSpaceId, String workspaceId) {
+    this.base  = baseUrl.endsWith("/") ? baseUrl.substring(0, baseUrl.length()-1) : baseUrl;
+    this.space = sharedSpaceId;
+    this.ws    = workspaceId;
+
+    CookieManager cm = new CookieManager();
+    cm.setCookiePolicy(CookiePolicy.ACCEPT_ALL);
+    this.http = new OkHttpClient.Builder()
+        .cookieJar(new JavaNetCookieJar(cm))
+        .followRedirects(true)
+        .build();
+  }
+
+  public void signIn(String clientId, String clientSecret) throws IOException {
+    String url  = base + "/authentication/sign_in";
+    String body = "{\"client_id\":\""+clientId+"\",\"client_secret\":\""+clientSecret+"\"}";
+    Request req = new Request.Builder().url(url)
+        .post(RequestBody.create(body, JSON))
+        .header("Content-Type","application/json")
+        .build();
+    try (Response r = http.newCall(req).execute()) {
+      if (!r.isSuccessful()) throw new IOException("sign_in failed: "+r.code()+" "+(r.body()!=null?r.body().string():""));
+    }
+  }
+
+  public String api(String path){ return base + "/api/shared_spaces/" + space + "/workspaces/" + ws + path; }
+
+  public JsonNode getJson(String url) throws IOException {
+    Request req = new Request.Builder().url(url).get().build();
+    try (Response r = http.newCall(req).execute()) {
+      String b = r.body()!=null ? r.body().string() : "";
+      if (!r.isSuccessful()) throw new IOException("GET "+url+" -> "+r.code()+" "+b);
+      return om.readTree(b.isEmpty()? "{}" : b);
+    }
+  }
+
+  public JsonNode postJson(String url, String payload) throws IOException {
+    Request req = new Request.Builder().url(url)
+        .post(RequestBody.create(payload, JSON))
+        .header("Content-Type","application/json")
+        .build();
+    try (Response r = http.newCall(req).execute()) {
+      String b = r.body()!=null ? r.body().string() : "";
+      if (!r.isSuccessful()) throw new IOException("POST "+url+" -> "+r.code()+" "+b);
+      return om.readTree(b.isEmpty()? "{}" : b);
+    }
+  }
+
+  // Java-8 safe URL-encode
+  static String enc(String s) {
+    try { return URLEncoder.encode(s, "UTF-8"); }
+    catch (Exception e) { throw new RuntimeException(e); }
+  }
+}
+
+
+
+
+
+import com.fasterxml.jackson.databind.JsonNode;
+
+public class OctaneTestOps {
+
+  /** Get or create a Test Suite by name; returns its id. */
+  public static String getOrCreateTestSuiteByName(OctaneClient oc, String suiteName) throws Exception {
+    // Read by name (exact)
+    String q   = "name='" + suiteName.replace("'", "\\'") + "'";
+    String url = oc.api("/test_suites") + "?fields=id,name&query=" + OctaneClient.enc(q) + "&limit=1";
+    JsonNode r = oc.getJson(url);
+    if (r.path("data").size() > 0) {
+      return r.path("data").get(0).path("id").asText();
+    }
+
+    // Create new test suite
+    String payload = "{ \"data\": [ { \"name\": \"" + suiteName.replace("\"","\\\"") + "\" } ] }";
+    JsonNode c = oc.postJson(oc.api("/test_suites"), payload);
+    return c.path("data").get(0).path("id").asText();
+  }
+
+  /**
+   * Get or create an Automated Test by identity.
+   * We match by name + package + class (module optional).
+   * Returns automated test id.
+   */
+  public static String getOrCreateAutomatedTest(
+      OctaneClient oc,
+      String name,
+      String pkg,
+      String clazz,
+      String moduleIdOrNull,     // optional: application module (product_area) id
+      String testingToolOrNull,  // optional e.g. "Selenium"
+      String frameworkOrNull     // optional e.g. "JUnit"
+  ) throws Exception {
+
+    String q = "name='" + esc(name) + "'";
+    if (pkg   != null && !pkg.isEmpty())   q += ";package='" + esc(pkg) + "'";
+    if (clazz != null && !clazz.isEmpty()) q += ";class_name='" + esc(clazz) + "'";
+
+    String url = oc.api("/automated_tests") + "?fields=id,name,package,class_name&query=" + OctaneClient.enc(q) + "&limit=1";
+    JsonNode r = oc.getJson(url);
+    if (r.path("data").size() > 0) {
+      return r.path("data").get(0).path("id").asText();           // already exists → reuse id
+    }
+
+    // Create new Automated Test
+    StringBuilder fields = new StringBuilder();
+    fields.append("\"name\":\"").append(jsonEsc(name)).append("\"");
+    if (pkg   != null && !pkg.isEmpty())   fields.append(",\"package\":\"").append(jsonEsc(pkg)).append("\"");
+    if (clazz != null && !clazz.isEmpty()) fields.append(",\"class_name\":\"").append(jsonEsc(clazz)).append("\"");
+    if (moduleIdOrNull != null && !moduleIdOrNull.isEmpty()) {
+      fields.append(",\"product_areas\":{\"data\":[{\"type\":\"product_area\",\"id\":\"")
+            .append(jsonEsc(moduleIdOrNull)).append("\"}]}");
+    }
+    if (testingToolOrNull != null && !testingToolOrNull.isEmpty()) {
+      fields.append(",\"testing_tool_type\":\"").append(jsonEsc(testingToolOrNull)).append("\"");
+    }
+    if (frameworkOrNull != null && !frameworkOrNull.isEmpty()) {
+      fields.append(",\"framework\":\"").append(jsonEsc(frameworkOrNull)).append("\"");
+    }
+
+    String payload = "{ \"data\": [ { " + fields + " } ] }";
+    JsonNode c = oc.postJson(oc.api("/automated_tests"), payload);
+    return c.path("data").get(0).path("id").asText();
+  }
+
+  /** Link a test into a suite (idempotent: we check if link exists; if not, we create). */
+  public static void ensureTestLinkedToSuite(OctaneClient oc, String suiteId, String testId) throws Exception {
+    // Check if link exists
+    String q   = "test_suite={id EQ " + suiteId + "};test={id EQ " + testId + "}";
+    String url = oc.api("/test_suite_link_to_test") + "?fields=id&query=" + OctaneClient.enc(q) + "&limit=1";
+    JsonNode r = oc.getJson(url);
+    if (r.path("data").size() > 0) return;  // already linked
+
+    // Create link (adds the test into the suite)
+    String payload = "{ \"data\": [ { " +
+        "\"test_suite\": {\"type\":\"test\",\"id\":\"" + suiteId + "\"}," +
+        "\"test\":       {\"type\":\"test\",\"id\":\"" + testId  + "\"}"  +
+      " } ] }";
+    oc.postJson(oc.api("/test_suite_link_to_test"), payload);
+  }
+
+  private static String esc(String s){ return s.replace("'", "\\'"); }
+  private static String jsonEsc(String s){ return s.replace("\\","\\\\").replace("\"","\\\""); }
+}
+
+
+
+
+
+import java.util.Arrays;
+
+public class DemoCreateAndLink {
+  public static void main(String[] args) throws Exception {
+    // Fill in your environment
+    String BASE_URL   = "https://your-octane.example.com";
+    String SPACE_ID   = "1001";
+    String WORKSPACE  = "1002";
+    String CLIENT_ID  = "xxxxxxxx";
+    String CLIENT_SEC = "yyyyyyyy";
+
+    // Desired suite and test identity
+    String SUITE_NAME = "Payments – Regression";
+    String TEST_NAME  = "should_handle_declined_card";
+    String TEST_PKG   = "it.smoke";
+    String TEST_CLASS = "CheckoutIT";
+    String MODULE_ID  = null;           // optional: an application module/product_area id
+
+    OctaneClient oc = new OctaneClient(BASE_URL, SPACE_ID, WORKSPACE);
+    oc.signIn(CLIENT_ID, CLIENT_SEC);
+
+    // 1) Get or create the suite (returns suite id)
+    String suiteId = OctaneTestOps.getOrCreateTestSuiteByName(oc, SUITE_NAME);
+    System.out.println("Suite id = " + suiteId);
+
+    // 2) Get or create the automated test (no duplicate test ids)
+    String autoTestId = OctaneTestOps.getOrCreateAutomatedTest(
+        oc, TEST_NAME, TEST_PKG, TEST_CLASS, MODULE_ID, "Selenium", "JUnit"
+    );
+    System.out.println("Automated test id = " + autoTestId);
+
+    // 3) Ensure the test is linked inside the suite (idempotent)
+    OctaneTestOps.ensureTestLinkedToSuite(oc, suiteId, autoTestId);
+    System.out.println("Linked test into suite.");
+  }
+}
