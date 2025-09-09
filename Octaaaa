@@ -1,0 +1,126 @@
+import java.util.HashMap;
+import java.util.Map;
+
+public class Example {
+    public static void main(String[] args) throws Exception {
+        XmlHttpClient http = new XmlHttpClient();
+
+        // Replace with your Octane endpoint
+        String url = "https://your-octane-server:8080/api/shared_spaces/{spaceId}/workspaces/{wsId}/runs";
+
+        // Example headers:
+        Map<String, String> headers = new HashMap<>();
+        headers.put("Authorization", "Bearer YOUR_ACCESS_TOKEN");   // or cookie-based auth
+        // Some environments need this client header (leave out if not required):
+        // headers.put("HPECLIENTTYPE", "HPE_REST_API_TECH_PREVIEW");
+
+        // Minimal illustrative XML payload (adjust to your server’s schema):
+        String xml =
+                "<run>" +
+                "  <name>Automated Run for Test 5678</name>" +
+                "  <native_status>passed</native_status>" +
+                "  <test id=\"5678\"/>" +
+                "  <suite_run id=\"1234\"/>" +
+                "</run>";
+
+        String resp = http.postXml(url, xml, headers);
+        System.out.println("Response:\n" + resp);
+    }
+}
+
+
+import java.util.HashMap;
+import java.util.Map;
+
+public class Example {
+    public static void main(String[] args) throws Exception {
+        XmlHttpClient http = new XmlHttpClient();
+
+        // Replace with your Octane endpoint
+        String url = "https://your-octane-server:8080/api/shared_spaces/{spaceId}/workspaces/{wsId}/runs";
+
+        // Example headers:
+        Map<String, String> headers = new HashMap<>();
+        headers.put("Authorization", "Bearer YOUR_ACCESS_TOKEN");   // or cookie-based auth
+        // Some environments need this client header (leave out if not required):
+        // headers.put("HPECLIENTTYPE", "HPE_REST_API_TECH_PREVIEW");
+
+        // Minimal illustrative XML payload (adjust to your server’s schema):
+        String xml =
+                "<run>" +
+                "  <name>Automated Run for Test 5678</name>" +
+                "  <native_status>passed</native_status>" +
+                "  <test id=\"5678\"/>" +
+                "  <suite_run id=\"1234\"/>" +
+                "</run>";
+
+        String resp = http.postXml(url, xml, headers);
+        System.out.println("Response:\n" + resp);
+    }
+}
+
+
+
+import java.net.URI;
+import java.net.http.HttpClient;
+import java.net.http.HttpRequest;
+import java.net.http.HttpResponse;
+import java.time.Duration;
+import java.util.Map;
+
+public class XmlHttpClientJdk {
+
+    private final HttpClient client = HttpClient.newBuilder()
+            .connectTimeout(Duration.ofSeconds(20))
+            .build();
+
+    public String postXml(String url, String xmlBody, Map<String, String> headers) throws Exception {
+        HttpRequest.Builder builder = HttpRequest.newBuilder()
+                .uri(URI.create(url))
+                .timeout(Duration.ofSeconds(60))
+                .header("Content-Type", "application/xml; charset=utf-8")
+                .header("Accept", "application/xml")
+                .POST(HttpRequest.BodyPublishers.ofString(xmlBody));
+
+        if (headers != null) {
+            headers.forEach(builder::header);
+        }
+
+        HttpRequest request = builder.build();
+        HttpResponse<String> response = client.send(request, HttpResponse.BodyHandlers.ofString());
+
+        if (response.statusCode() / 100 != 2) {
+            throw new RuntimeException("HTTP " + response.statusCode() + " - " + response.body());
+        }
+        return response.body();
+    }
+}
+
+
+
+
+public class RunXmlBuilder {
+    public static String buildRunXml(long suiteRunId, long automatedTestId, String statusLowerCase) {
+        return "<run>" +
+               "  <name>Automated Run for Test " + automatedTestId + "</name>" +
+               "  <native_status>" + statusLowerCase + "</native_status>" +
+               "  <test id=\"" + automatedTestId + "\"/>" +
+               "  <suite_run id=\"" + suiteRunId + "\"/>" +
+               "</run>";
+    }
+}
+
+
+
+
+
+
+
+
+
+
+String xml = RunXmlBuilder.buildRunXml(1234L, 5678L, "passed");
+String resp = http.postXml(octaneRunsUrl, xml, headers);
+
+
+
