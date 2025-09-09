@@ -1,0 +1,306 @@
+import okhttp3.*;
+import com.fasterxml.jackson.databind.JsonNode;
+import com.fasterxml.jackson.databind.ObjectMapper;
+
+import java.io.IOException;
+import java.time.Duration;
+import java.time.Instant;
+import java.util.Objects;
+
+public class OctaneSuiteRunPoster {
+
+    // --------------------- Config ---------------------
+    private final String baseUrl;      // e.g., https://octane.company.com
+    private final String spaceId;      // shared space id
+    private final String workspaceId;  // workspace id
+    private final String clientId;     // OAuth client id
+    private final String clientSecret; // OAuth client secret
+    private final String authFlow;     // "sign_in" (default) | "client_credentials"
+    private final String cookieHeader; // optional (LWSSO_COOKIE_KEY=...; QCSession=...)
+
+    private final OkHttpClient http;
+    private final ObjectMapper mapper = new ObjectMapper();
+
+    public OctaneSuiteRunPoster(String baseUrl, String spaceId, String workspaceId,
+                                String clientId, String clientSecret,
+                                String authFlow, String cookieHeader) {
+        this.baseUrl = stripTrailingSlash(require(baseUrl, "OCTANE_URL"));
+        this.spaceId = require(spaceId, "SPACE_ID");
+        this.workspaceId = require(workspaceId, "WORKSPACE_ID");
+        this.clientId = require(clientId, "CLIENT_ID");
+        this.clientSecret = require(clientSecret, "CLIENT_SECRET");
+        this.authFlow = (authFlow == null || authFlow.trim().isEmpty()) ? "sign_in" : authFlow.trim();
+        this.cookieHeader = cookieHeader; // optional
+
+        this.http = new OkHttpClient.Builder()
+                .callTimeout(Duration.ofSeconds(120))
+                .connectTimeout(Duration.ofSeconds(30))
+                .readTimeout(Duration.ofSeconds(120))
+                .writeTimeout(Duration.ofSeconds(120))
+                .build();
+    }
+
+    // --------------------- Auth -----------------------
+
+    /** Obtain Bearer token using the selected flow, or return null if you plan to use Cookie auth. */
+    public String fetchBearerTokenOrNull() throws IOException {
+        // If cookie is provided and you want to use cookie auth only, return null
+        if (cookieHeader != null && !cookieHeader.trim().isEmpty()) {
+            return null;
+        }
+        if ("client_credentials".equalsIgnoreCase(authFlow)) {
+            return fetchToken_clientCredentials();
+        }
+        return fetchToken_signIn();
+    }
+
+    private String fetchToken_signIn() throws IOException {
+        String url = baseUrl + "/authentication/sign_in";
+        String jsonBody = "{ \"client_id\": \"" + escapeJson(clientId) + "\", " +
+                          "\"client_secret\": \"" + escapeJson(clientSecret) + "\" }";
+
+        Request req = new Request.Builder()
+                .url(url)
+                .post(RequestBody.create(jsonBody, MediaType.parse("application/json")))
+                .addHeader("Accept", "application/json")
+                .addHeader("Content-Type", "application/json")
+                .build();
+
+        try (Response resp = http.newCall(req).execute()) {
+            String body = resp.body() != null ? resp.body().string() : "";
+            if (!resp.isSuccessful()) {
+                throw new IOException("Auth(sign_in) failed: HTTP " + resp.code() + " - " + body);
+            }
+            JsonNode root = mapper.readTree(body);
+            String token = root.path("data").path("access_token").asText(null);
+            if (token == null || token.trim().isEmpty()) token = root.path("access_token").asText(null);
+            if (token == null || token.trim().isEmpty()) {
+                throw new IOException("Auth(sign_in): access_token missing. Resp: " + body);
+            }
+            return token;
+        }
+    }
+
+    private String fetchToken_clientCredentials() throws IOException {
+        String url = baseUrl + "/authentication/oauth/token";
+        String form = "client_id=" + urlEncode(clientId) +
+                      "&client_secret=" + urlEncode(clientSecret) +
+                      "&grant_type=client_credentials";
+
+        Request req = new Request.Builder()
+                .url(url)
+                .post(RequestBody.create(form, MediaType.parse("application/x-www-form-urlencoded")))
+                .addHeader("Accept", "application/json")
+                .build();
+
+        try (Response resp = http.newCall(req).execute()) {
+            String body = resp.body() != null ? resp.body().string() : "";
+            if (!resp.isSuccessful()) {
+                throw new IOException("Auth(client_credentials) failed: HTTP " + resp.code() + " - " + body);
+            }
+            JsonNode root = mapper.readTree(body);
+            String token = root.path("access_token").asText(null);
+            if (token == null || token.trim().isEmpty()) {
+                throw new IOException("Auth(client_credentials): access_token missing. Resp: " + body);
+            }
+            return token;
+        }
+    }
+
+    // --------------------- Suite Run + Results --------
+
+    public SuiteRunInfo fetchSuiteRunInfo(long suiteRunId, String bearerToken) throws IOException {
+        String url = apiBase() + "/suite_runs/" + suiteRunId + "?fields=name,release";
+        Request.Builder rb = new Request.Builder().url(url).get().addHeader("Accept", "application/json");
+        addAuthHeaders(rb, bearerToken);
+
+        try (Response resp = http.newCall(rb.build()).execute()) {
+            String body = resp.body() != null ? resp.body().string() : "";
+            if (!resp.isSuccessful()) {
+                throw new IOException("GET suite_run failed: HTTP " + resp.code() + " - " + body);
+            }
+            JsonNode root = mapper.readTree(body);
+            JsonNode data = root.path("data");
+            if (data.isArray() && data.size() > 0) {
+                JsonNode item = data.get(0);
+                String name = item.path("name").asText(null);
+                String releaseId = item.path("release").path("id").asText(null);
+                if (name == null || releaseId == null) throw new IOException("Missing name/release. " + body);
+                return new SuiteRunInfo(suiteRunId, name, Long.parseLong(releaseId));
+            }
+            String name = root.path("name").asText(null);
+            String releaseId = root.path("release").path("id").asText(null);
+            if (name != null && releaseId != null) return new SuiteRunInfo(suiteRunId, name, Long.parseLong(releaseId));
+            throw new IOException("Unexpected suite_run payload: " + body);
+        }
+    }
+
+    public String postTestResultsXml(String xml, String bearerToken) throws IOException {
+        String url = apiBase() + "/test-results";
+        Request.Builder rb = new Request.Builder()
+                .url(url)
+                .post(RequestBody.create(xml, MediaType.parse("application/xml")))
+                .addHeader("Content-Type", "application/xml")
+                .addHeader("Accept", "application/json");
+        addAuthHeaders(rb, bearerToken);
+
+        try (Response resp = http.newCall(rb.build()).execute()) {
+            String body = resp.body() != null ? resp.body().string() : "";
+            if (!resp.isSuccessful()) {
+                throw new IOException("POST test-results failed: HTTP " + resp.code() + " - " + body);
+            }
+            return body;
+        }
+    }
+
+    private void addAuthHeaders(Request.Builder rb, String bearerToken) {
+        if (bearerToken != null && !bearerToken.trim().isEmpty()) {
+            rb.addHeader("Authorization", "Bearer " + bearerToken);
+        } else if (cookieHeader != null && !cookieHeader.trim().isEmpty()) {
+            rb.addHeader("Cookie", cookieHeader);
+        }
+    }
+
+    // --------------------- DTO / XML ------------------
+
+    public static class SuiteRunInfo {
+        public final long id;
+        public final String name;
+        public final long releaseId;
+        public SuiteRunInfo(long id, String name, long releaseId) {
+            this.id = id; this.name = name; this.releaseId = releaseId;
+        }
+    }
+
+    public static class TestRun {
+        public final String module, pkg, clazz, name;
+        public final long durationMillis, startedEpochMillis;
+        public final String status; // Passed|Failed|Skipped
+        public TestRun(String module, String pkg, String clazz, String name,
+                       long durationMillis, String status, long startedEpochMillis) {
+            this.module = Objects.requireNonNull(module);
+            this.pkg = Objects.requireNonNull(pkg);
+            this.clazz = Objects.requireNonNull(clazz);
+            this.name = Objects.requireNonNull(name);
+            this.durationMillis = durationMillis;
+            this.status = Objects.requireNonNull(status);
+            this.startedEpochMillis = startedEpochMillis;
+        }
+        public String toXml() {
+            return "    <test_run"
+                    + attr("module", module)
+                    + attr("package", pkg)
+                    + attr("class", clazz)
+                    + attr("name", name)
+                    + attr("duration", Long.toString(durationMillis))
+                    + attr("status", status)
+                    + attr("started", Long.toString(startedEpochMillis))
+                    + "/>\n";
+        }
+    }
+
+    public static String buildTestResultXml(long testSuiteId, String suiteRunName, long releaseId, TestRun... runs) {
+        StringBuilder sb = new StringBuilder();
+        sb.append("<test_result>\n");
+        sb.append("  <suite_ref").append(attr("id", Long.toString(testSuiteId)))
+          .append(attr("external_run_id", suiteRunName)).append("/>\n");
+        sb.append("  <release_ref").append(attr("id", Long.toString(releaseId))).append("/>\n");
+        sb.append("  <test_runs>\n");
+        for (TestRun r : runs) sb.append(r.toXml());
+        sb.append("  </test_runs>\n");
+        sb.append("</test_result>\n");
+        return sb.toString();
+    }
+
+    // --------------------- Main -----------------------
+
+    public static void main(String[] args) throws Exception {
+        String baseUrl      = get("octane.url", "OCTANE_URL");
+        String spaceId      = get("space.id", "SPACE_ID");
+        String workspaceId  = get("workspace.id", "WORKSPACE_ID");
+        String clientId     = get("client.id", "CLIENT_ID");
+        String clientSecret = get("client.secret", "CLIENT_SECRET");
+
+        String authFlow     = getOptional("auth.flow", "AUTH_FLOW", "sign_in"); // sign_in | client_credentials
+        String cookieHeader = getOptional("auth.cookie", "AUTH_COOKIE", null);  // LWSSO_COOKIE_KEY=...; QCSession=...
+
+        long suiteRunId   = Long.parseLong(get("suite.run.id", "SUITE_RUN_ID"));
+        long testSuiteId  = Long.parseLong(get("test.suite.id", "TEST_SUITE_ID"));
+
+        OctaneSuiteRunPoster app = new OctaneSuiteRunPoster(
+                baseUrl, spaceId, workspaceId, clientId, clientSecret, authFlow, cookieHeader
+        );
+
+        // 1) Auth (unless using cookie-only)
+        String token = app.fetchBearerTokenOrNull();
+        System.out.println("Auth OK. " + (token != null ? "Bearer token acquired." : "Using Cookie auth."));
+
+        // 2) Read suite run (name + release)
+        SuiteRunInfo sri = app.fetchSuiteRunInfo(suiteRunId, token);
+        System.out.println("SuiteRun: id=" + sri.id + ", name=" + sri.name + ", releaseId=" + sri.releaseId);
+
+        // 3) One Passed test example (adjust identifiers to match your automated test)
+        TestRun run = new TestRun(
+                "/calc", "com.example.tests", "CalculatorTest", "adds_two_numbers",
+                1200L, "Passed", Instant.now().toEpochMilli()
+        );
+
+        // 4) Build payload targeting THIS suite run
+        String xml = buildTestResultXml(testSuiteId, sri.name, sri.releaseId, run);
+        System.out.println("XML:\n" + xml);
+
+        // 5) POST to /test-results
+        String resp = app.postTestResultsXml(xml, token);
+        System.out.println("Response:\n" + resp);
+    }
+
+    // --------------------- Utils ----------------------
+
+    private String apiBase() {
+        return baseUrl + "/api/shared_spaces/" + spaceId + "/workspaces/" + workspaceId;
+    }
+
+    private static String require(String v, String name) {
+        if (v == null || v.trim().isEmpty()) throw new IllegalArgumentException("Missing " + name);
+        return v;
+    }
+
+    private static String stripTrailingSlash(String s) {
+        if (s == null) return null;
+        while (s.endsWith("/")) s = s.substring(0, s.length() - 1);
+        return s;
+    }
+
+    private static String get(String sysProp, String env) {
+        String v = System.getProperty(sysProp);
+        if (v != null && !v.trim().isEmpty()) return v;
+        v = System.getenv(env);
+        if (v != null && !v.trim().isEmpty()) return v;
+        throw new IllegalArgumentException("Provide -D" + sysProp + " or env " + env);
+    }
+
+    private static String getOptional(String sysProp, String env, String dflt) {
+        String v = System.getProperty(sysProp);
+        if (v != null && !v.trim().isEmpty()) return v;
+        v = System.getenv(env);
+        if (v != null && !v.trim().isEmpty()) return v;
+        return dflt;
+    }
+
+    private static String attr(String k, String v) {
+        return " " + k + "=\"" + escapeXml(v) + "\"";
+    }
+
+    private static String escapeXml(String s) {
+        return s.replace("&", "&amp;").replace("\"", "&quot;").replace("<", "&lt;").replace(">", "&gt;");
+    }
+
+    private static String escapeJson(String s) {
+        return s.replace("\\", "\\\\").replace("\"", "\\\"");
+    }
+
+    private static String urlEncode(String s) {
+        try { return java.net.URLEncoder.encode(s, "UTF-8"); }
+        catch (Exception e) { throw new RuntimeException(e); }
+    }
+}
