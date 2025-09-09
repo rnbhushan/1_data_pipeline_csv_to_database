@@ -1,0 +1,60 @@
+import com.hpe.adm.nga.sdk.Octane;
+import com.hpe.adm.nga.sdk.entities.EntityList;
+import com.hpe.adm.nga.sdk.entities.OctaneCollection;
+import com.hpe.adm.nga.sdk.entities.OctaneEntity;
+
+import java.util.HashMap;
+import java.util.Map;
+
+public class OctaneResultPublisher {
+
+    private final Octane octane;
+
+    public OctaneResultPublisher(Octane octane) {
+        this.octane = octane;
+    }
+
+    /**
+     * Posts the result for an Automated Test into Octane with the given status.
+     *
+     * @param suiteRunId         ID of the Test Suite Run (SR)
+     * @param automatedTestId    ID of the Automated Test already created
+     * @param status             Test status ("Passed", "Failed", "Skipped", etc.)
+     */
+    public void postAutomatedTestResult(long suiteRunId, long automatedTestId, String status) {
+        try {
+            // Access suite run entity list
+            EntityList runs = octane.entityList("runs");
+
+            // Create a new Run entity for the automated test
+            OctaneEntity runEntity = OctaneEntity.create()
+                    .setName("Automated Run for Test " + automatedTestId)
+                    .setField("native_status", status.toLowerCase()) // status must be lower-case: passed/failed
+                    .setField("test", OctaneEntity.create().setId(String.valueOf(automatedTestId)))
+                    .setField("suite_run", OctaneEntity.create().setId(String.valueOf(suiteRunId)));
+
+            // Post the run to Octane
+            OctaneCollection result = runs.create().entities(runEntity).execute();
+
+            System.out.println("✅ Test result posted successfully: " + result.getEntities().get(0).getId());
+
+        } catch (Exception e) {
+            System.err.println("❌ Error posting test result: " + e.getMessage());
+            e.printStackTrace();
+        }
+    }
+}
+
+
+
+public static void main(String[] args) {
+    Octane octane = MyOctaneUtils.createOctaneClient(); // your Octane connection helper
+
+    OctaneResultPublisher publisher = new OctaneResultPublisher(octane);
+
+    long suiteRunId = 1234L;       // existing suite run ID
+    long automatedTestId = 5678L;  // automated test ID
+    String status = "Passed";      // desired status
+
+    publisher.postAutomatedTestResult(suiteRunId, automatedTestId, status);
+}
