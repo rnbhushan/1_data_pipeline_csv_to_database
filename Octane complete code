@@ -1,0 +1,287 @@
+import okhttp3.*;
+import com.fasterxml.jackson.databind.JsonNode;
+import com.fasterxml.jackson.databind.ObjectMapper;
+
+import java.io.IOException;
+import java.time.Duration;
+import java.time.Instant;
+import java.util.Objects;
+
+/**
+ * End-to-end example:
+ * 1) Fetch SuiteRun info (name + release id) for a given suiteRunId
+ * 2) Build test-results XML that targets that SuiteRun (suite_ref + external_run_id + release_ref)
+ * 3) POST to /api/shared_spaces/{space}/workspaces/{ws}/test-results  to inject a Passed test
+ *
+ * Auth:
+ *   - Set either Authorization: Bearer <token>
+ *   - OR Cookie: LWSSO_COOKIE_KEY=<value>; QCSession=<value> ...
+ *
+ * Replace placeholders in main() and run.
+ */
+public class OctaneSuiteRunResultClient {
+
+    // ---------- Configuration ----------
+    private final String baseUrl;     // e.g., "https://octane.example.com"
+    private final String spaceId;     // shared space id
+    private final String workspaceId; // workspace id
+    private final String authHeader;  // e.g., "Bearer <token>" or null if using Cookie
+    private final String cookieHeader; // e.g., "LWSSO_COOKIE_KEY=...; QCSession=..." or null if using Bearer
+
+    private final OkHttpClient http;
+    private final ObjectMapper mapper;
+
+    public OctaneSuiteRunResultClient(String baseUrl, String spaceId, String workspaceId,
+                                      String authHeader, String cookieHeader) {
+        this.baseUrl = stripTrailingSlash(baseUrl);
+        this.spaceId = spaceId;
+        this.workspaceId = workspaceId;
+        this.authHeader = authHeader;
+        this.cookieHeader = cookieHeader;
+
+        this.http = new OkHttpClient.Builder()
+                .callTimeout(Duration.ofSeconds(120))
+                .connectTimeout(Duration.ofSeconds(30))
+                .readTimeout(Duration.ofSeconds(120))
+                .writeTimeout(Duration.ofSeconds(120))
+                .build();
+
+        this.mapper = new ObjectMapper();
+    }
+
+    // ---------- Public API ----------
+
+    /**
+     * Fetch Suite Run (by id) to obtain suite run name and release id.
+     *
+     * We GET: /suite_runs/{id}?fields=name,release
+     * Response typically:
+     * {
+     *   "data":[{"id":"123","name":"Nightly-2025-09-09","release":{"type":"release","id":"2001"}}]
+     * }
+     */
+    public SuiteRunInfo fetchSuiteRunInfo(long suiteRunId) throws IOException {
+        String url = apiBase() + "/suite_runs/" + suiteRunId + "?fields=name,release";
+
+        Request.Builder rb = new Request.Builder()
+                .url(url)
+                .get()
+                .addHeader("Accept", "application/json");
+
+        addAuthHeaders(rb);
+
+        try (Response resp = http.newCall(rb.build()).execute()) {
+            if (!resp.isSuccessful()) {
+                throw new IOException("GET suite_run failed: HTTP " + resp.code() + " - " +
+                        (resp.body() != null ? resp.body().string() : ""));
+            }
+            String body = resp.body() != null ? resp.body().string() : "{}";
+            JsonNode root = mapper.readTree(body);
+
+            // Common Octane shape: { "data": [ {...} ] }
+            JsonNode data = root.path("data");
+            if (data.isArray() && data.size() > 0) {
+                JsonNode item = data.get(0);
+                String name = item.path("name").asText(null);
+                String releaseId = item.path("release").path("id").asText(null);
+
+                if (name == null || releaseId == null) {
+                    throw new IOException("SuiteRun missing name or release id. Payload: " + body);
+                }
+                return new SuiteRunInfo(suiteRunId, name, Long.parseLong(releaseId));
+            }
+
+            // Some deployments may return a single object (less common). Try fallback:
+            String name = root.path("name").asText(null);
+            String releaseId = root.path("release").path("id").asText(null);
+            if (name != null && releaseId != null) {
+                return new SuiteRunInfo(suiteRunId, name, Long.parseLong(releaseId));
+            }
+
+            throw new IOException("Unexpected suite_run response shape: " + body);
+        }
+    }
+
+    /**
+     * Post test results XML (one or more test runs) to target a specific SuiteRun via:
+     *   <suite_ref id="TEST_SUITE_ID" external_run_id="SUITE_RUN_NAME"/>
+     *   <release_ref id="RELEASE_ID"/>
+     */
+    public String postTestResultsXml(String xml) throws IOException {
+        String url = apiBase() + "/test-results";
+        RequestBody body = RequestBody.create(xml, MediaType.parse("application/xml"));
+
+        Request.Builder rb = new Request.Builder()
+                .url(url)
+                .post(body)
+                .addHeader("Content-Type", "application/xml")
+                .addHeader("Accept", "application/json");
+
+        addAuthHeaders(rb);
+
+        try (Response resp = http.newCall(rb.build()).execute()) {
+            if (!resp.isSuccessful()) {
+                throw new IOException("POST test-results failed: HTTP " + resp.code() + " - " +
+                        (resp.body() != null ? resp.body().string() : ""));
+            }
+            return resp.body() != null ? resp.body().string() : "";
+        }
+    }
+
+    // ---------- Helpers ----------
+
+    private void addAuthHeaders(Request.Builder rb) {
+        if (authHeader != null && !authHeader.isBlank()) {
+            rb.addHeader("Authorization", authHeader);
+        }
+        if (cookieHeader != null && !cookieHeader.isBlank()) {
+            rb.addHeader("Cookie", cookieHeader);
+        }
+    }
+
+    private String apiBase() {
+        return baseUrl + "/api/shared_spaces/" + spaceId + "/workspaces/" + workspaceId;
+    }
+
+    private static String stripTrailingSlash(String s) {
+        if (s == null) return null;
+        while (s.endsWith("/")) s = s.substring(0, s.length() - 1);
+        return s;
+    }
+
+    // ---------- DTOs & XML builders ----------
+
+    public static class SuiteRunInfo {
+        public final long id;
+        public final String name;       // used as external_run_id
+        public final long releaseId;
+
+        public SuiteRunInfo(long id, String name, long releaseId) {
+            this.id = id;
+            this.name = name;
+            this.releaseId = releaseId;
+        }
+    }
+
+    public static class TestRun {
+        public final String module; // e.g. "/calc"
+        public final String pkg;    // e.g. "com.example.tests"
+        public final String clazz;  // e.g. "CalculatorTest"
+        public final String name;   // e.g. "adds_two_numbers"
+        public final long durationMillis; // e.g. 1234
+        public final String status; // "Passed" | "Failed" | "Skipped"
+        public final long startedEpochMillis;
+
+        public TestRun(String module, String pkg, String clazz, String name,
+                       long durationMillis, String status, long startedEpochMillis) {
+            this.module = Objects.requireNonNull(module);
+            this.pkg = Objects.requireNonNull(pkg);
+            this.clazz = Objects.requireNonNull(clazz);
+            this.name = Objects.requireNonNull(name);
+            this.durationMillis = durationMillis;
+            this.status = Objects.requireNonNull(status);
+            this.startedEpochMillis = startedEpochMillis;
+        }
+
+        public String toXml() {
+            // Note: Octane expects these attributes to identify/resolve the Automated Test.
+            // Ensure status is exactly "Passed"|"Failed"|"Skipped".
+            return "    <test_run"
+                    + attr("module", module)
+                    + attr("package", pkg)
+                    + attr("class", clazz)
+                    + attr("name", name)
+                    + attr("duration", Long.toString(durationMillis))
+                    + attr("status", status)
+                    + attr("started", Long.toString(startedEpochMillis))
+                    + "/>\n";
+        }
+
+        private static String attr(String k, String v) {
+            return " " + k + "=\"" + escapeXml(v) + "\"";
+        }
+    }
+
+    /**
+     * Build the full <test_result> XML, targeting a specific suite run by:
+     *   - suiteId (TEST SUITE entity id)
+     *   - suiteRunName (external_run_id)
+     *   - releaseId
+     * Add one or more <test_run .../> items.
+     */
+    public static String buildTestResultXml(long suiteId, String suiteRunName, long releaseId, TestRun... runs) {
+        StringBuilder sb = new StringBuilder();
+        sb.append("<test_result>\n");
+        sb.append("  <suite_ref")
+          .append(attr("id", Long.toString(suiteId)))
+          .append(attr("external_run_id", suiteRunName))
+          .append("/>\n");
+        sb.append("  <release_ref").append(attr("id", Long.toString(releaseId))).append("/>\n");
+        sb.append("  <test_runs>\n");
+        for (TestRun r : runs) sb.append(r.toXml());
+        sb.append("  </test_runs>\n");
+        sb.append("</test_result>\n");
+        return sb.toString();
+    }
+
+    private static String attr(String k, String v) {
+        return " " + k + "=\"" + escapeXml(v) + "\"";
+    }
+
+    // Very small escape for attribute/text content we use
+    private static String escapeXml(String s) {
+        return s.replace("&", "&amp;")
+                .replace("\"", "&quot;")
+                .replace("<", "&lt;")
+                .replace(">", "&gt;");
+    }
+
+    // ---------- Demo main ----------
+
+    public static void main(String[] args) throws Exception {
+        // === 1) Fill these with your environment ===
+        String baseUrl     = "https://your-octane.example.com";
+        String spaceId     = "1001";
+        String workspaceId = "2001";
+
+        // Use ONE of the following:
+        String bearerToken = null; // e.g., "Bearer eyJhbGciOi..."
+        String cookie      = "LWSSO_COOKIE_KEY=<value>; QCSession=<value>"; // if using LWSSO
+
+        // Known IDs:
+        long suiteRunId = 1234L;  // You already have this (Suite Run you want to update)
+        long suiteId    = 1067L;  // TEST SUITE entity id that the suite run belongs to
+
+        // === 2) Build client ===
+        OctaneSuiteRunResultClient client = new OctaneSuiteRunResultClient(
+                baseUrl, spaceId, workspaceId,
+                bearerToken != null ? "Bearer " + bearerToken.substring("Bearer ".equals(bearerToken) ? 7 : 0) : null,
+                bearerToken == null ? cookie : null
+        );
+
+        // === 3) Resolve suite run name + release id ===
+        SuiteRunInfo sri = client.fetchSuiteRunInfo(suiteRunId);
+        System.out.println("SuiteRun: id=" + sri.id + ", name=" + sri.name + ", releaseId=" + sri.releaseId);
+
+        // === 4) Prepare one Passed test run ===
+        TestRun passedRun = new TestRun(
+                "/calc",
+                "com.example.tests",
+                "CalculatorTest",
+                "adds_two_numbers",
+                1200L,
+                "Passed",
+                Instant.now().toEpochMilli()
+        );
+
+        // === 5) Build XML that targets the specific Suite Run via suite_ref + external_run_id + release_ref ===
+        String xml = buildTestResultXml(suiteId, sri.name, sri.releaseId, passedRun);
+        System.out.println("XML Payload:\n" + xml);
+
+        // === 6) POST to test-results ===
+        String response = client.postTestResultsXml(xml);
+        System.out.println("POST /test-results response:\n" + response);
+
+        // If server responds 202/200 with JSON (e.g., {"status":"queued","id":...}) you can consider it successful.
+    }
+}
