@@ -1,0 +1,78 @@
+import java.io.OutputStream;
+import java.net.HttpURLConnection;
+import java.net.URL;
+
+public class OctaneTestRunUpdater {
+
+    /**
+     * Updates the status of an Automated Run (AR) to "Passed" using Octane REST API.
+     *
+     * @param octaneUrl   Base URL of Octane (e.g., https://your-octane-url.com)
+     * @param spaceId     Shared space ID
+     * @param workspaceId Workspace ID
+     * @param runId       ID of the Automated Run (AR)
+     * @param accessToken Bearer token for authentication
+     * @throws Exception in case of HTTP or network issues
+     */
+    public static void updateAutomatedRunStatusToPassed(String octaneUrl,
+                                                        String spaceId,
+                                                        String workspaceId,
+                                                        String runId,
+                                                        String accessToken) throws Exception {
+
+        // Construct the full API endpoint
+        String urlString = String.format("%s/api/shared_spaces/%s/workspaces/%s/runs/%s",
+                octaneUrl, spaceId, workspaceId, runId);
+
+        URL url = new URL(urlString);
+        HttpURLConnection conn = (HttpURLConnection) url.openConnection();
+
+        // Setup connection for PUT
+        conn.setRequestMethod("PUT");
+        conn.setDoOutput(true);
+        conn.setRequestProperty("Content-Type", "application/xml");
+        conn.setRequestProperty("Accept", "application/xml");
+        conn.setRequestProperty("Authorization", "Bearer " + accessToken);
+
+        // XML body to set status = Passed
+        String xmlBody =
+                "<?xml version=\"1.0\" encoding=\"UTF-8\"?>\n" +
+                "<Entity Type=\"run\">\n" +
+                "    <Fields>\n" +
+                "        <Field Name=\"status\">\n" +
+                "            <Value Type=\"list_node\" ReferenceType=\"list_node\">list_node.run_status.passed</Value>\n" +
+                "        </Field>\n" +
+                "    </Fields>\n" +
+                "</Entity>";
+
+        // Send the XML data
+        try (OutputStream os = conn.getOutputStream()) {
+            byte[] input = xmlBody.getBytes("utf-8");
+            os.write(input, 0, input.length);
+        }
+
+        int responseCode = conn.getResponseCode();
+
+        if (responseCode == 200 || responseCode == 204) {
+            System.out.println("Run status updated successfully to PASSED.");
+        } else {
+            System.out.println("Failed to update run status. HTTP Code: " + responseCode);
+        }
+
+        conn.disconnect();
+    }
+
+    // Sample usage
+    public static void main(String[] args) {
+        try {
+            String octaneUrl = "https://your-octane-url.com";  // Replace with actual URL
+            String spaceId = "1001";
+            String workspaceId = "2001";
+            String runId = "12345";  // Automated Run ID
+            String accessToken = "your_access_token_here";  // Get this via login or token management
+
+            updateAutomatedRunStatusToPassed(octaneUrl, spaceId, workspaceId, runId, accessToken);
+        } catch (Exception e) {
+            e.printStackTrace();
+        }
+    }
